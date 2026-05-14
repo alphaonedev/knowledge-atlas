@@ -1,0 +1,58 @@
+Knowledge Atlas
+Copyright 2026 AlphaOne LLC
+
+This product includes software developed by AlphaOne LLC and contributors.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not
+use this software except in compliance with the License. A copy of the
+License is included in this distribution at LICENSE, and is also available
+at: http://www.apache.org/licenses/LICENSE-2.0
+
+------------------------------------------------------------------------
+Third-party software (used at runtime; not distributed in this repository)
+------------------------------------------------------------------------
+
+This project depends on the following third-party open-source software,
+each governed by its own license:
+
+  - yt-dlp                 — The Unlicense / public domain
+  - Flask                  — BSD 3-Clause
+  - openai (Python SDK)    — Apache License 2.0
+  - anthropic (Python SDK) — MIT License
+  - mcp (Python SDK)       — MIT License
+  - scikit-learn / numpy / pandas — BSD 3-Clause
+  - SQLite                 — Public Domain
+
+The user is responsible for complying with each dependency's license terms.
+
+------------------------------------------------------------------------
+Trademarks and third-party services
+------------------------------------------------------------------------
+
+YouTube is a trademark of Google LLC. This project is not affiliated with,
+endorsed by, or sponsored by Google LLC.
+
+Claude is a trademark of Anthropic PBC. Model Context Protocol is a
+specification published by Anthropic PBC.
+
+Grok and xAI are trademarks of X.AI Corp.
+
+Use of any third-party service through this software is subject to that
+service's terms of use, acceptable-use policy, and applicable copyright law.
+Users are solely responsible for ensuring their usage complies with all
+applicable terms when running this pipeline against external sources.
+
+------------------------------------------------------------------------
+Disclaimer
+------------------------------------------------------------------------
+
+This software is provided "AS IS" without warranty of any kind. AlphaOne
+LLC and contributors are not liable for any damages arising from the use
+of this software or any output it produces.
+
+The knowledge cards produced by this software are AI-generated paraphrases
+of third-party content and reflect the original speakers' opinions, not
+those of AlphaOne LLC. Cards are not professional advice (legal, financial,
+medical, or otherwise) and must not be relied upon as such. Always verify
+information against the cited source and consult qualified professionals
+for advice in any regulated domain.

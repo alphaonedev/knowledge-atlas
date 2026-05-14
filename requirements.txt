@@ -1,0 +1,15 @@
+# Core
+flask>=3.0
+yt-dlp>=2024.1.1
+
+# LLM providers (install at least one)
+openai>=1.40        # used as the xAI OpenAI-compatible client
+anthropic>=0.40     # used for the Anthropic Claude path
+
+# MCP server (Model Context Protocol)
+mcp>=1.0
+
+# Analytics & extraction support
+scikit-learn>=1.4   # only used by the legacy build_db.py (optional)
+numpy>=1.26
+pandas>=2.0

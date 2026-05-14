@@ -1,0 +1,1160 @@
+<!--
+  Knowledge Atlas
+  Copyright (c) 2026 AlphaOne LLC. All rights reserved.
+  Licensed under the Apache License, Version 2.0. See LICENSE for full terms.
+  SPDX-License-Identifier: Apache-2.0
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta name="copyright" content="© 2026 AlphaOne LLC. All rights reserved.">
+<meta name="license" content="Apache-2.0">
+<meta charset="utf-8" />
+<title>Knowledge Atlas</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  /* ========================================================================
+     Design tokens
+     ====================================================================== */
+  :root {
+    /* Surfaces */
+    --bg: #fbfbfc;
+    --bg-tint: #f4f6fb;
+    --panel: #ffffff;
+    --panel-2: #f4f5f8;
+    --border: #e3e6ec;
+    --border-strong: #d3d7df;
+
+    /* Text */
+    --text: #15171c;
+    --text-soft: #3a404b;
+    --muted: #6b7280;
+    --muted-2: #9aa2af;
+
+    /* Brand & semantic */
+    --accent: #2454c8;
+    --accent-soft: #ecf1fc;
+    --accent-strong: #1c3fa3;
+    --focus: #93b4ff;
+
+    /* Knowledge kinds */
+    --principle:    #5b21b6;  --principle-bg:    #f1ebfb;  --principle-bd:    #dbcaf2;
+    --tactic:       #0e7a36;  --tactic-bg:       #e3f4e8;  --tactic-bd:       #b6dec2;
+    --warning:      #b51c1c;  --warning-bg:      #fbe5e5;  --warning-bd:      #f1b8b8;
+    --framework:    #8a5500;  --framework-bg:    #faecc6;  --framework-bd:    #e6cd86;
+    --mental_model: #0a6c80;  --mental_model-bg: #d6eef3;  --mental_model-bd: #a5d2dc;
+    --phrase:       #a8470a;  --phrase-bg:       #fbe1cd;  --phrase-bd:       #efbf90;
+    --quote:        #9d1f6c;  --quote-bg:        #fbdeec;  --quote-bd:        #ecadce;
+
+    /* Type stacks */
+    --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI",
+                 Helvetica, Arial, sans-serif;
+    --font-display: "Iowan Old Style", "Source Serif Pro", "Charter",
+                    Georgia, "Cambria", serif;
+    --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+    /* Type scale */
+    --t-xs: 11px;  --t-sm: 12px;  --t-base: 14px;  --t-md: 15px;
+    --t-lg: 17px;  --t-xl: 20px;  --t-2xl: 24px;   --t-3xl: 30px;
+
+    /* Radius */
+    --r-sm: 6px;  --r-md: 10px;  --r-lg: 14px;
+
+    /* Shadows */
+    --shadow-xs: 0 1px 0 rgba(20,30,60,0.04);
+    --shadow-sm: 0 1px 2px rgba(20,30,60,0.04), 0 1px 4px rgba(20,30,60,0.05);
+    --shadow-md: 0 4px 12px rgba(20,30,60,0.07), 0 1px 3px rgba(20,30,60,0.04);
+    --shadow-lg: 0 10px 30px rgba(20,30,60,0.10), 0 4px 12px rgba(20,30,60,0.06);
+
+    /* Layout */
+    --sidebar-w: 260px;
+    --content-max: 880px;
+    --header-h: 64px;
+  }
+
+  /* ========================================================================
+     Base
+     ====================================================================== */
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: var(--t-md);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection { background: #d8e2fe; color: var(--text); }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; text-underline-offset: 2px; }
+  a:visited { color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+
+  /* ========================================================================
+     Header
+     ====================================================================== */
+  header {
+    position: sticky; top: 0; z-index: 50;
+    height: var(--header-h);
+    padding: 0 28px;
+    display: flex; align-items: center; gap: 24px;
+    background: rgba(255,255,255,0.85);
+    backdrop-filter: saturate(160%) blur(12px);
+    -webkit-backdrop-filter: saturate(160%) blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .brand {
+    display: flex; align-items: baseline; gap: 8px;
+    flex-shrink: 0; min-width: var(--sidebar-w);
+    text-decoration: none;
+  }
+  .brand-mark {
+    width: 28px; height: 28px; border-radius: 7px;
+    background: linear-gradient(135deg, #4f6bff 0%, #8b5cf6 100%);
+    display: inline-flex; align-items: center; justify-content: center;
+    color: white; font-weight: 700; font-size: 14px;
+    box-shadow: 0 2px 6px rgba(79, 107, 255, 0.35);
+    align-self: center;
+  }
+  .brand-title {
+    font-family: var(--font-display);
+    font-size: 18px; font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+  .brand-sub {
+    font-size: var(--t-sm); color: var(--muted);
+    font-feature-settings: "tnum";
+  }
+  .header-search {
+    flex: 1; max-width: 520px;
+    position: relative;
+  }
+  .header-search input {
+    width: 100%; height: 38px;
+    padding: 0 14px 0 38px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    font: 14px/1.4 var(--font-sans);
+    color: var(--text);
+  }
+  .header-search input::placeholder { color: var(--muted); }
+  .header-search input:focus {
+    outline: none;
+    background: var(--panel);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(36,84,200,0.12);
+  }
+  .header-search svg {
+    position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+    width: 16px; height: 16px; color: var(--muted); pointer-events: none;
+  }
+  .header-search kbd {
+    position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 4px; padding: 1px 6px;
+    font: 11px var(--font-mono); color: var(--muted);
+    pointer-events: none;
+  }
+  .header-actions { display: flex; align-items: center; gap: 10px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 36px; padding: 0 14px;
+    background: var(--text); color: white;
+    border: 1px solid var(--text);
+    border-radius: var(--r-md);
+    font: 600 13px var(--font-sans);
+    cursor: pointer;
+    transition: transform 0.04s, background 0.1s;
+  }
+  .btn:hover { background: #2a2f3a; }
+  .btn:active { transform: translateY(1px); }
+  .btn-primary {
+    background: var(--accent); border-color: var(--accent);
+  }
+  .btn-primary:hover { background: var(--accent-strong); }
+  .btn-ghost {
+    background: transparent; color: var(--text);
+    border-color: var(--border);
+  }
+  .btn-ghost:hover { background: var(--panel-2); }
+
+  /* ========================================================================
+     Layout
+     ====================================================================== */
+  .layout {
+    display: grid;
+    grid-template-columns: var(--sidebar-w) 1fr;
+    min-height: calc(100vh - var(--header-h));
+  }
+  aside {
+    border-right: 1px solid var(--border);
+    background: var(--panel);
+    padding: 24px 16px 32px;
+    overflow-y: auto;
+    height: calc(100vh - var(--header-h));
+    position: sticky;
+    top: var(--header-h);
+  }
+  aside .group { margin-bottom: 26px; }
+  aside .group-label {
+    font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted-2); font-weight: 600;
+    padding: 0 10px; margin-bottom: 8px;
+  }
+  .nav-item {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    color: var(--text-soft);
+    font-size: var(--t-base);
+    line-height: 1.3;
+    margin-bottom: 1px;
+    transition: background 0.08s, color 0.08s;
+  }
+  .nav-item:hover { background: var(--panel-2); color: var(--text); }
+  .nav-item.active {
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+    font-weight: 600;
+  }
+  .nav-item .ct {
+    font: 500 var(--t-xs) var(--font-mono);
+    color: var(--muted-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .nav-item.active .ct { color: var(--accent); }
+  .nav-item .dot {
+    width: 8px; height: 8px; border-radius: 2px;
+    flex-shrink: 0;
+  }
+
+  main {
+    padding: 32px 48px 80px;
+    max-width: calc(var(--content-max) + 96px);
+    width: 100%;
+  }
+
+  /* ========================================================================
+     Section header / breadcrumb
+     ====================================================================== */
+  .section-head { margin: 8px 0 28px; }
+  .kicker {
+    font-size: var(--t-xs); text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--muted); font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .section-head h2 {
+    margin: 0; font-family: var(--font-display);
+    font-size: var(--t-3xl); font-weight: 600;
+    letter-spacing: -0.015em;
+    line-height: 1.15;
+  }
+  .section-head .meta {
+    margin-top: 10px;
+    color: var(--muted); font-size: var(--t-base);
+  }
+  h3 { font-size: var(--t-base); font-weight: 600; margin: 24px 0 10px; }
+
+  /* ========================================================================
+     Kind pills
+     ====================================================================== */
+  .kind-pill {
+    display: inline-flex; align-items: center;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font: 700 10px/1.5 var(--font-sans);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .kind-principle    { background: var(--principle-bg);    color: var(--principle);    border-color: var(--principle-bd); }
+  .kind-tactic       { background: var(--tactic-bg);       color: var(--tactic);       border-color: var(--tactic-bd); }
+  .kind-warning      { background: var(--warning-bg);      color: var(--warning);      border-color: var(--warning-bd); }
+  .kind-framework    { background: var(--framework-bg);    color: var(--framework);    border-color: var(--framework-bd); }
+  .kind-mental_model { background: var(--mental_model-bg); color: var(--mental_model); border-color: var(--mental_model-bd); }
+  .kind-phrase       { background: var(--phrase-bg);       color: var(--phrase);       border-color: var(--phrase-bd); }
+  .kind-quote        { background: var(--quote-bg);        color: var(--quote);        border-color: var(--quote-bd); }
+
+  /* Dot color (used in sidebar for kind nav) */
+  .dot.kind-principle    { background: var(--principle); }
+  .dot.kind-tactic       { background: var(--tactic); }
+  .dot.kind-warning      { background: var(--warning); }
+  .dot.kind-framework    { background: var(--framework); }
+  .dot.kind-mental_model { background: var(--mental_model); }
+  .dot.kind-phrase       { background: var(--phrase); }
+  .dot.kind-quote        { background: var(--quote); }
+
+  .category-tag {
+    display: inline-flex; align-items: center;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font: 500 11px/1.5 var(--font-mono);
+    background: var(--panel-2); color: var(--text-soft);
+    border: 1px solid var(--border);
+  }
+
+  /* ========================================================================
+     Cards
+     ====================================================================== */
+  .card {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: 22px 24px 20px;
+    margin-bottom: 14px;
+    overflow: hidden;
+    transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s;
+  }
+  .card::before {
+    content: "";
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: 3px; background: var(--border-strong);
+    transition: background 0.12s;
+  }
+  .card:hover {
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-md);
+  }
+  .card.kind--principle::before    { background: var(--principle); }
+  .card.kind--tactic::before       { background: var(--tactic); }
+  .card.kind--warning::before      { background: var(--warning); }
+  .card.kind--framework::before    { background: var(--framework); }
+  .card.kind--mental_model::before { background: var(--mental_model); }
+  .card.kind--phrase::before       { background: var(--phrase); }
+  .card.kind--quote::before        { background: var(--quote); }
+
+  .card-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+  .card-title {
+    margin: 0 0 10px;
+    font: 600 var(--t-lg)/1.35 var(--font-sans);
+    letter-spacing: -0.005em;
+    color: var(--text);
+  }
+  .card-content {
+    font-size: var(--t-md); line-height: 1.6;
+    color: var(--text-soft);
+    max-width: 68ch;
+  }
+  .card-steps {
+    list-style: none; counter-reset: step; padding: 0;
+    margin: 14px 0 0;
+  }
+  .card-steps li {
+    counter-increment: step;
+    position: relative;
+    padding: 6px 0 6px 36px;
+    font-size: var(--t-base); line-height: 1.55; color: var(--text-soft);
+    border-top: 1px solid var(--border);
+  }
+  .card-steps li:first-child { border-top: 0; }
+  .card-steps li::before {
+    content: counter(step);
+    position: absolute; left: 0; top: 6px;
+    width: 24px; height: 24px;
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font: 600 11px var(--font-mono);
+  }
+  .card-reasoning {
+    margin-top: 14px; padding: 10px 14px;
+    background: var(--bg-tint); border-radius: var(--r-sm);
+    color: var(--text-soft); font-size: var(--t-base); line-height: 1.55;
+    border-left: 2px solid var(--accent);
+  }
+  .card-reasoning::before {
+    content: "Why";
+    display: block;
+    font: 700 10px var(--font-sans);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--accent); margin-bottom: 4px;
+  }
+  .card-quote {
+    margin-top: 14px; padding: 12px 16px;
+    background: var(--panel-2); border-radius: var(--r-sm);
+    color: var(--text-soft); font: italic var(--t-base)/1.55 var(--font-display);
+    border-left: 2px solid var(--muted-2);
+  }
+  .card-quote::before { content: "\201C"; margin-right: 1px; }
+  .card-quote::after  { content: "\201D"; margin-left: 1px; }
+
+  .card-source {
+    margin-top: 16px; padding-top: 14px;
+    border-top: 1px solid var(--border);
+    font-size: var(--t-sm); color: var(--muted);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .card-source::before {
+    content: "";
+    width: 14px; height: 14px;
+    background: currentColor; opacity: 0.6;
+    -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polygon points='23 7 16 12 23 17 23 7'/><rect x='1' y='5' width='15' height='14' rx='2' ry='2'/></svg>") center/contain no-repeat;
+    mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polygon points='23 7 16 12 23 17 23 7'/><rect x='1' y='5' width='15' height='14' rx='2' ry='2'/></svg>") center/contain no-repeat;
+    flex-shrink: 0;
+  }
+
+  /* ========================================================================
+     Kind-group section labels (e.g. "Principles — 12")
+     ====================================================================== */
+  .kind-group-head {
+    display: flex; align-items: center; gap: 10px;
+    margin: 32px 0 12px;
+  }
+  .kind-group-head .label {
+    font: 600 var(--t-xs)/1 var(--font-sans);
+    text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--text-soft);
+  }
+  .kind-group-head .count {
+    font: 500 var(--t-xs)/1 var(--font-mono);
+    color: var(--muted-2);
+  }
+  .kind-group-head .rule {
+    flex: 1; height: 1px; background: var(--border);
+  }
+
+  /* ========================================================================
+     Tables (cross-source coverage)
+     ====================================================================== */
+  .data-table {
+    width: 100%; border-collapse: collapse;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    overflow: hidden;
+    font-size: var(--t-base);
+  }
+  .data-table th, .data-table td {
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .data-table th {
+    background: var(--panel-2);
+    font: 600 var(--t-xs) var(--font-sans);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted);
+  }
+  .data-table td.right, .data-table th.right { text-align: right; }
+  .data-table tr:last-child td { border-bottom: 0; }
+  .data-table tr:hover td { background: var(--bg-tint); }
+
+  /* ========================================================================
+     Misc
+     ====================================================================== */
+  mark { background: #fff1a8; color: #4a3500;
+         padding: 0 3px; border-radius: 3px; font-weight: 600; }
+  .muted { color: var(--muted); }
+  .breadcrumb {
+    font-size: var(--t-sm); color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .empty {
+    text-align: center; padding: 80px 20px;
+    color: var(--muted);
+  }
+  .empty .big {
+    font-family: var(--font-display);
+    font-size: var(--t-xl); color: var(--text);
+    margin-bottom: 6px;
+  }
+  code {
+    font: 13px var(--font-mono);
+    background: var(--panel-2); padding: 1px 5px;
+    border-radius: 4px; border: 1px solid var(--border);
+  }
+  pre {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    padding: 12px 14px;
+    overflow-x: auto;
+    font: 12px/1.5 var(--font-mono);
+  }
+
+  /* Mobile */
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: 1fr; }
+    aside { position: static; height: auto; border-right: none;
+            border-bottom: 1px solid var(--border); }
+    header { padding: 0 16px; gap: 12px; }
+    .brand { min-width: 0; }
+    .brand-sub { display: none; }
+    main { padding: 24px 20px 64px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="brand" href="/">
+    <span class="brand-mark">A</span>
+    <span class="brand-title">Knowledge Atlas</span>
+    <span class="brand-sub" id="hero-sub">loading…</span>
+  </a>
+  <div class="header-search">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+    </svg>
+    <input type="search" id="search" placeholder="Search the knowledge…" autocomplete="off">
+    <kbd id="search-kbd">⌘K</kbd>
+  </div>
+  <div class="header-actions">
+    <button class="btn btn-primary" id="add-source-btn">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Index expert
+    </button>
+  </div>
+</header>
+
+<!-- INGEST MODAL -->
+<div id="ingest-modal" style="
+  display:none; position:fixed; inset:0; background:rgba(28,38,60,0.28); backdrop-filter:blur(2px); z-index:1000;
+  align-items:center; justify-content:center; padding:20px;">
+  <div style="
+    background:var(--panel); border:1px solid var(--border); border-radius:14px;
+    max-width:640px; width:100%; max-height:90vh; overflow-y:auto;
+    padding:28px 30px; position:relative; box-shadow:var(--shadow-lg);">
+    <button id="close-modal" style="
+      position:absolute; top:10px; right:14px; background:transparent;
+      color:var(--muted); border:0; font-size:26px; cursor:pointer;">&times;</button>
+    <h2 style="margin:0 0 4px; font-size:20px;">Index a new domain expert</h2>
+    <p class="muted" style="margin:0 0 18px; font-size:13px;">
+      Paste a YouTube channel URL. The pipeline downloads every transcript,
+      extracts knowledge cards via Claude, and merges the source into the
+      unified atlas. Cross-source endpoints update automatically.
+    </p>
+
+    <div id="ingest-form">
+      <label style="display:block; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px;">Channel URL *</label>
+      <input id="in-url" type="url" placeholder="https://www.youtube.com/@AlexHormozi" class="search-box" style="margin-bottom:14px; padding:10px 12px; font-size:14px;">
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px;">
+        <div>
+          <label style="display:block; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px;">Source id (slug)</label>
+          <input id="in-id" type="text" placeholder="auto from URL" class="search-box" style="padding:10px 12px; font-size:14px;">
+        </div>
+        <div>
+          <label style="display:block; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px;">Display name</label>
+          <input id="in-name" type="text" placeholder="e.g. Alex Hormozi" class="search-box" style="padding:10px 12px; font-size:14px;">
+        </div>
+      </div>
+
+      <label style="display:block; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px;">Domain</label>
+      <input id="in-domain" type="text" placeholder="business, scaling, sales" class="search-box" style="margin-bottom:14px; padding:10px 12px; font-size:14px;">
+
+      <label style="display:block; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px;">What they're known for</label>
+      <input id="in-expertise" type="text" placeholder="founder of Acquisition.com; $100M Offers" class="search-box" style="margin-bottom:18px; padding:10px 12px; font-size:14px;">
+
+      <div style="background:var(--panel-2); border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:14px;">
+        <label style="display:block; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px;">Time window — limit which videos get fetched</label>
+        <div id="window-presets" style="display:flex; gap:6px; flex-wrap:wrap;">
+          <button type="button" class="window-btn" data-window="1d">1 day</button>
+          <button type="button" class="window-btn" data-window="1w">1 week</button>
+          <button type="button" class="window-btn" data-window="1m">1 month</button>
+          <button type="button" class="window-btn" data-window="3m">3 months</button>
+          <button type="button" class="window-btn" data-window="6m">6 months</button>
+          <button type="button" class="window-btn" data-window="1y">1 year</button>
+          <button type="button" class="window-btn active" data-window="all">All time</button>
+          <button type="button" class="window-btn" data-window="custom">Custom…</button>
+        </div>
+        <div id="window-custom" style="display:none; margin-top:10px; gap:10px;">
+          <label style="display:block; font-size:11px; color:var(--muted); margin-bottom:4px;">From (YYYY-MM-DD)</label>
+          <input id="in-since" type="date" class="search-box" style="padding:8px 10px; font-size:13px; margin-bottom:8px;">
+          <label style="display:block; font-size:11px; color:var(--muted); margin-bottom:4px;">To (YYYY-MM-DD, optional)</label>
+          <input id="in-until" type="date" class="search-box" style="padding:8px 10px; font-size:13px;">
+        </div>
+        <p id="window-hint" class="muted" style="font-size:11px; margin:8px 0 0;">Fetch every video on the channel.</p>
+      </div>
+
+      <style>
+        .window-btn {
+          background:var(--panel); color:var(--text); border:1px solid var(--border);
+          padding:5px 10px; border-radius:999px; cursor:pointer; font:12px inherit;
+        }
+        .window-btn.active { background:var(--accent); border-color:var(--accent); color:white; }
+        .window-btn:hover:not(.active) { background:var(--panel-2); }
+      </style>
+
+      <div id="api-key-block" style="background:var(--panel-2); border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:18px;">
+        <label style="display:block; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px;">Extraction provider</label>
+        <div style="display:flex; gap:6px; margin-bottom:10px;">
+          <button type="button" id="prov-xai" class="prov-btn active" data-provider="xai" style="
+            flex:1; background:var(--panel); color:var(--text); border:1px solid var(--border);
+            padding:8px 10px; border-radius:6px; cursor:pointer; font:13px inherit;">
+            xAI Grok <span class="prov-key-status muted" data-provider="xai"></span>
+          </button>
+          <button type="button" id="prov-anthropic" class="prov-btn" data-provider="anthropic" style="
+            flex:1; background:var(--panel); color:var(--text); border:1px solid var(--border);
+            padding:8px 10px; border-radius:6px; cursor:pointer; font:13px inherit;">
+            Anthropic Claude <span class="prov-key-status muted" data-provider="anthropic"></span>
+          </button>
+        </div>
+        <label style="display:block; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px;">Model</label>
+        <input id="in-model" type="text" class="search-box" style="padding:8px 12px; font-size:13px; margin-bottom:10px;">
+        <label style="display:block; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px;">API key <span id="key-status" style="text-transform:none; letter-spacing:0; float:right;"></span></label>
+        <input id="in-api-key" type="password" placeholder="leave blank if already saved" class="search-box" style="padding:10px 12px; font-size:14px; margin-bottom:6px;">
+        <label style="font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px;">
+          <input id="in-save-key" type="checkbox" checked> Save locally to <code>.env</code> (chmod 600). Used only by this localhost server.
+        </label>
+      </div>
+
+      <div style="display:flex; gap:10px; justify-content:flex-end;">
+        <button id="cancel-ingest" style="
+          background:transparent; color:var(--muted); border:1px solid var(--border);
+          padding:10px 18px; border-radius:8px; cursor:pointer; font:inherit;">Cancel</button>
+        <button id="submit-ingest" style="
+          background:var(--accent); color:white; border:0;
+          padding:10px 22px; border-radius:8px; cursor:pointer; font:600 inherit;">
+          Start ingestion
+        </button>
+      </div>
+    </div>
+
+    <div id="ingest-progress" style="display:none;">
+      <div style="margin-bottom:8px; font-size:13px;">
+        <span id="prog-step" class="pill kind-principle">starting…</span>
+        <span id="prog-msg" class="muted" style="margin-left:8px;"></span>
+      </div>
+      <div style="height:8px; background:var(--panel-2); border-radius:4px; overflow:hidden; margin-bottom:14px;">
+        <div id="prog-bar" style="height:100%; width:0%; background:linear-gradient(90deg,var(--accent),var(--principle)); transition:width 0.4s;"></div>
+      </div>
+      <div id="prog-log" style="
+        background:#f8fafc; border:1px solid var(--border); border-radius:6px;
+        padding:12px 14px; font:12px/1.5 ui-monospace, monospace; color:#1f2937;
+        max-height:280px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;"></div>
+      <div id="prog-actions" style="margin-top:16px; display:flex; justify-content:flex-end; gap:10px;">
+        <button id="prog-stop" style="
+          background:transparent; color:var(--warning); border:1px solid var(--warning-bd, #f3bcbc);
+          padding:10px 16px; border-radius:8px; cursor:pointer; font:600 13px inherit;">
+          Stop extraction
+        </button>
+        <button id="prog-close" style="
+          background:var(--accent); color:white; border:0;
+          padding:10px 22px; border-radius:8px; cursor:pointer; font:600 inherit; display:none;">Close & reload atlas</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="layout">
+  <aside>
+    <div class="group">
+      <div class="group-label">Library</div>
+      <div class="nav-item active" data-view="all"><span>All knowledge</span><span class="ct" id="ct-all">—</span></div>
+      <div class="nav-item" data-view="videos"><span>By video</span></div>
+      <div class="nav-item" data-view="sources"><span>By source</span></div>
+      <div class="nav-item" data-view="coverage"><span>Cross-source coverage</span></div>
+    </div>
+
+    <div class="group">
+      <div class="group-label">By kind</div>
+      <div id="kinds-nav"></div>
+    </div>
+
+    <div class="group">
+      <div class="group-label">By topic</div>
+      <div id="categories-nav"></div>
+    </div>
+  </aside>
+
+  <main id="main">
+    <div class="empty"><div class="big">Loading…</div></div>
+  </main>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+async function J(url) { const r = await fetch(url); return r.json(); }
+function escapeHtml(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+let SOURCE = null;
+let KINDS = [], CATEGORIES = [], VIDEOS = [];
+let view = { type: "all" };
+
+const KIND_ORDER = ["principle", "mental_model", "framework", "tactic", "phrase", "warning", "quote"];
+
+function setActive(item) {
+  $$(".nav-item").forEach(n => n.classList.remove("active"));
+  if (item) item.classList.add("active");
+}
+
+function renderSidebar() {
+  $("#ct-all").textContent = SOURCE.cards;
+
+  $("#kinds-nav").innerHTML = KINDS
+    .sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind))
+    .map(k => `
+      <div class="nav-item" data-kind="${k.kind}">
+        <span style="display:inline-flex;align-items:center;gap:8px;">
+          <span class="dot kind-${k.kind}"></span>
+          <span style="text-transform:capitalize;">${k.kind.replace("_"," ")}</span>
+        </span>
+        <span class="ct">${k.cards}</span>
+      </div>
+    `).join("");
+
+  $("#categories-nav").innerHTML = CATEGORIES.map(c => `
+    <div class="nav-item" data-category="${escapeHtml(c.category)}">
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(c.category)}</span>
+      <span class="ct">${c.cards}</span>
+    </div>
+  `).join("");
+
+  $$(".nav-item[data-kind]").forEach(el => el.addEventListener("click", () => {
+    view = { type: "kind", value: el.dataset.kind };
+    setActive(el); render();
+  }));
+  $$(".nav-item[data-category]").forEach(el => el.addEventListener("click", () => {
+    view = { type: "category", value: el.dataset.category };
+    setActive(el); render();
+  }));
+  $$(".nav-item[data-view]").forEach(el => el.addEventListener("click", () => {
+    view = { type: el.dataset.view };
+    setActive(el); render();
+  }));
+}
+
+function cardHTML(c) {
+  return `
+    <article class="card kind--${c.kind}">
+      <div class="card-meta">
+        <span class="kind-pill kind-${c.kind}">${c.kind.replace("_"," ")}</span>
+        ${c.category ? `<span class="category-tag">${escapeHtml(c.category)}</span>` : ""}
+      </div>
+      <h3 class="card-title">${escapeHtml(c.title)}</h3>
+      <div class="card-content">${escapeHtml(c.content)}</div>
+      ${c.framework_steps && c.framework_steps.length ? `
+        <ol class="card-steps">
+          ${c.framework_steps.map(s => `<li>${escapeHtml(s)}</li>`).join("")}
+        </ol>
+      ` : ""}
+      ${c.reasoning ? `<div class="card-reasoning">${escapeHtml(c.reasoning)}</div>` : ""}
+      ${c.source_quote ? `<div class="card-quote">${escapeHtml(c.source_quote)}</div>` : ""}
+      <div class="card-source">
+        <a href="${c.video_url}" target="_blank">${escapeHtml(c.video_title || "source")}</a>
+      </div>
+    </article>
+  `;
+}
+
+function searchCardHTML(c) {
+  return `
+    <article class="card kind--${c.kind}">
+      <div class="card-meta">
+        <span class="kind-pill kind-${c.kind}">${c.kind.replace("_"," ")}</span>
+        ${c.category ? `<span class="category-tag">${escapeHtml(c.category)}</span>` : ""}
+      </div>
+      <h3 class="card-title">${escapeHtml(c.title)}</h3>
+      <div class="card-content">${escapeHtml(c.content)}</div>
+      ${c.snippet ? `<div class="card-content" style="margin-top:10px;font-size:13px;color:var(--muted);">${c.snippet}</div>` : ""}
+      ${c.framework_steps && c.framework_steps.length ? `
+        <ol class="card-steps">
+          ${c.framework_steps.map(s => `<li>${escapeHtml(s)}</li>`).join("")}
+        </ol>
+      ` : ""}
+      ${c.reasoning ? `<div class="card-reasoning">${escapeHtml(c.reasoning)}</div>` : ""}
+      <div class="card-source">
+        <a href="${c.video_url}" target="_blank">${escapeHtml(c.video_title || "source")}</a>
+      </div>
+    </article>
+  `;
+}
+
+function groupByKind(cards) {
+  const g = {};
+  for (const c of cards) (g[c.kind] = g[c.kind] || []).push(c);
+  return g;
+}
+
+function renderCards(cards, opts = {}) {
+  if (!cards.length) {
+    $("#main").innerHTML = `<div class="empty"><div class="big">Nothing here yet.</div><div>Try another filter or run a new search.</div></div>`;
+    return;
+  }
+  const groups = groupByKind(cards);
+  const ordered = KIND_ORDER.filter(k => groups[k]);
+  $("#main").innerHTML =
+    (opts.heading ? `<div class="section-head">
+      ${opts.breadcrumb ? `<div class="kicker">${opts.breadcrumb}</div>` : ""}
+      <h2>${escapeHtml(opts.heading)}</h2>
+      <div class="meta">${cards.length} card${cards.length===1?"":"s"} across ${ordered.length} kind${ordered.length===1?"":"s"}</div>
+    </div>` : "") +
+    ordered.map(k => `
+      <div class="kind-group-head">
+        <span class="dot kind-${k}"></span>
+        <span class="label">${k.replace("_"," ")}</span>
+        <span class="count">${groups[k].length}</span>
+        <span class="rule"></span>
+      </div>
+    ` + groups[k].map(cardHTML).join("")).join("");
+}
+
+async function renderAll() {
+  const cards = await J("/api/cards?limit=2000");
+  renderCards(cards, { heading: "The atlas", breadcrumb: "Library" });
+}
+async function renderKind(kind) {
+  const cards = await J("/api/cards?kind=" + encodeURIComponent(kind) + "&limit=2000");
+  renderCards(cards, {
+    heading: kind.replace("_", " ").replace(/^./, c => c.toUpperCase()) + "s",
+    breadcrumb: "By kind",
+  });
+}
+async function renderCategory(cat) {
+  const cards = await J("/api/cards?category=" + encodeURIComponent(cat) + "&limit=2000");
+  renderCards(cards, { heading: cat, breadcrumb: "Topic" });
+}
+async function renderSources() {
+  const sources = await J("/ai/sources");
+  $("#main").innerHTML = `
+    <div class="section-head">
+      <div class="kicker">Library</div>
+      <h2>Indexed experts</h2>
+      <div class="meta">${sources.length} expert${sources.length === 1 ? "" : "s"} · each contributes paraphrased knowledge cards to the same atlas</div>
+    </div>
+    ` + sources.map(s => `
+      <article class="card">
+        <div class="card-meta">
+          <span class="category-tag">${escapeHtml(s.kind || "source")}</span>
+          <span class="muted" style="font-size:12px;">${s.videos} videos · ${s.cards} cards · ${s.categories} topics</span>
+        </div>
+        <h3 class="card-title">${escapeHtml(s.name || s.id)}</h3>
+        ${s.expertise ? `<div class="card-content">${escapeHtml(s.expertise)}</div>` : ""}
+        ${s.domain ? `<div class="card-reasoning"><b style="color:var(--text);font-style:normal;">${escapeHtml(s.domain)}</b></div>` : ""}
+        <div class="card-source">
+          <a href="${s.url}" target="_blank">${escapeHtml(s.url || "")}</a>
+        </div>
+      </article>
+    `).join("") + `
+      <article class="card" style="border-style:dashed;background:var(--bg-tint);">
+        <h3 class="card-title">Index another expert</h3>
+        <div class="card-content">
+          Click <b>Index expert</b> in the header bar to add any YouTube channel. The pipeline downloads transcripts, distills them into knowledge cards via your chosen LLM, and merges them into this same atlas — fully cross-correlated.
+        </div>
+      </article>
+    `;
+}
+
+async function renderCoverage() {
+  const grid = await J("/ai/cross/coverage");
+  const sources = await J("/ai/sources");
+  const ids = sources.map(s => s.id);
+  $("#main").innerHTML = `
+    <div class="section-head">
+      <div class="kicker">Cross-source</div>
+      <h2>Coverage matrix</h2>
+      <div class="meta">${grid.length} topics across ${ids.length} source${ids.length === 1 ? "" : "s"} · the matrix fills in as you index more experts</div>
+    </div>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Topic</th>
+          ${ids.map(id => `<th class="right">${escapeHtml(id)}</th>`).join("")}
+          <th class="right">total</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${grid.map(row => {
+          const map = Object.fromEntries(row.sources.map(s => [s.source_id, s.cards]));
+          const total = ids.reduce((a, id) => a + (map[id] || 0), 0);
+          return `<tr data-cat="${escapeHtml(row.category)}">
+            <td><a href="#" class="cat-link" data-cat="${escapeHtml(row.category)}">${escapeHtml(row.category)}</a></td>
+            ${ids.map(id => `<td class="right" style="color:${map[id] ? "var(--text)" : "var(--muted-2)"};font-variant-numeric:tabular-nums;">${map[id] || "—"}</td>`).join("")}
+            <td class="right" style="font-variant-numeric:tabular-nums;color:var(--muted);">${total}</td>
+          </tr>`;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
+  $$("#main .cat-link").forEach(a => a.addEventListener("click", e => {
+    e.preventDefault();
+    view = { type: "category", value: a.dataset.cat };
+    setActive($('.nav-item[data-category="' + a.dataset.cat.replace(/"/g,'\\"') + '"]'));
+    render();
+  }));
+}
+
+async function renderVideos() {
+  const vids = await J("/api/videos");
+  $("#main").innerHTML = `
+    <div class="section-head">
+      <div class="kicker">Library</div>
+      <h2>Videos</h2>
+      <div class="meta">${vids.length} videos · each shows the cards distilled from it</div>
+    </div>
+    ` + vids.map(v => `
+      <article class="card" style="cursor:pointer;" data-video="${v.id}">
+        <div class="card-meta">
+          <span class="category-tag" style="font-variant-numeric:tabular-nums;">${v.card_count} cards</span>
+        </div>
+        <h3 class="card-title">${escapeHtml(v.title)}</h3>
+        ${v.one_line ? `<div class="card-content">${escapeHtml(v.one_line)}</div>` : ""}
+        ${v.best_for ? `<div class="card-reasoning">${escapeHtml(v.best_for)}</div>` : ""}
+        <div class="card-source">
+          <a href="${v.url}" target="_blank" onclick="event.stopPropagation()">Watch original on YouTube</a>
+        </div>
+      </article>
+    `).join("");
+  $$(".card[data-video]").forEach(el => el.addEventListener("click", async () => {
+    const v = await J("/api/video/" + el.dataset.video);
+    renderCards(v.cards, { heading: v.title, breadcrumb: "Video" });
+  }));
+}
+
+async function renderSearch(q) {
+  const hits = await J("/api/search?q=" + encodeURIComponent(q));
+  if (!hits.length) {
+    $("#main").innerHTML = `<div class="empty"><div class="big">No matching knowledge.</div><div>Try a broader or different term.</div></div>`;
+    return;
+  }
+  $("#main").innerHTML = `
+    <div class="section-head">
+      <div class="kicker">Search</div>
+      <h2>“${escapeHtml(q)}”</h2>
+      <div class="meta">${hits.length} matching card${hits.length===1?"":"s"} across all sources</div>
+    </div>
+  ` + hits.map(searchCardHTML).join("");
+}
+
+async function render() {
+  if (view.type === "search")   return renderSearch(view.value);
+  if (view.type === "videos")   return renderVideos();
+  if (view.type === "sources")  return renderSources();
+  if (view.type === "coverage") return renderCoverage();
+  if (view.type === "kind")     return renderKind(view.value);
+  if (view.type === "category") return renderCategory(view.value);
+  return renderAll();
+}
+
+// ---- search input ----
+let searchTimer;
+const searchEl = $("#search");
+searchEl.addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  const q = searchEl.value.trim();
+  if (!q) {
+    view = { type: "all" };
+    setActive($('.nav-item[data-view="all"]'));
+    render();
+    return;
+  }
+  searchTimer = setTimeout(() => {
+    view = { type: "search", value: q };
+    setActive(null);
+    render();
+  }, 220);
+});
+
+// Cmd+K / Ctrl+K to focus search
+window.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+    e.preventDefault();
+    searchEl.focus();
+    searchEl.select();
+  }
+  if (e.key === "Escape" && document.activeElement === searchEl) {
+    searchEl.blur();
+  }
+});
+
+// Hide kbd hint on non-Mac platforms
+if (!/Mac|iPhone|iPad/i.test(navigator.platform)) {
+  const k = $("#search-kbd");
+  if (k) k.textContent = "Ctrl+K";
+}
+
+// ---- ingest modal ----
+const modal = $("#ingest-modal");
+let providersState = { providers: {}, auto_provider: null };
+let selectedProvider = "xai";
+
+function applyProviderUI() {
+  $$('.prov-btn').forEach(b => {
+    b.classList.toggle("active", b.dataset.provider === selectedProvider);
+    b.style.borderColor = b.dataset.provider === selectedProvider ? "var(--accent)" : "var(--border)";
+    b.style.background = b.dataset.provider === selectedProvider ? "rgba(106,163,255,0.1)" : "var(--panel)";
+  });
+  const p = providersState.providers[selectedProvider] || {};
+  $("#in-model").value = p.default_model || "";
+  $("#in-model").placeholder = p.default_model || "";
+  $("#key-status").innerHTML = p.has_key
+    ? '<span style="color:var(--tactic)">✓ key found</span>'
+    : '<span style="color:var(--warning)">no key — paste below</span>';
+  $("#in-api-key").placeholder = p.has_key
+    ? "leave blank to use saved key"
+    : "paste API key here";
+  // Per-button key indicators
+  $$('.prov-key-status').forEach(s => {
+    const ps = providersState.providers[s.dataset.provider] || {};
+    s.textContent = ps.has_key ? "✓" : "";
+    s.style.color = ps.has_key ? "var(--tactic)" : "var(--muted)";
+  });
+}
+
+$$('.prov-btn').forEach(b => b.addEventListener("click", () => {
+  selectedProvider = b.dataset.provider;
+  applyProviderUI();
+}));
+
+// ---- Time-window picker ----
+let selectedWindow = "all";
+const WINDOW_LABELS = {
+  "1d":  "Fetch only videos uploaded in the last 24 hours.",
+  "1w":  "Fetch only videos uploaded in the last 7 days.",
+  "1m":  "Fetch only videos uploaded in the last 30 days.",
+  "3m":  "Fetch only videos uploaded in the last 3 months.",
+  "6m":  "Fetch only videos uploaded in the last 6 months.",
+  "1y":  "Fetch only videos uploaded in the last 365 days.",
+  "all": "Fetch every video on the channel.",
+  "custom": "Fetch videos in the date range you specify below.",
+};
+
+function applyWindowUI() {
+  $$('.window-btn').forEach(b => b.classList.toggle("active", b.dataset.window === selectedWindow));
+  $("#window-hint").textContent = WINDOW_LABELS[selectedWindow] || "";
+  $("#window-custom").style.display = selectedWindow === "custom" ? "block" : "none";
+}
+$$('.window-btn').forEach(b => b.addEventListener("click", () => {
+  selectedWindow = b.dataset.window;
+  applyWindowUI();
+}));
+
+async function openModal() {
+  modal.style.display = "flex";
+  $("#ingest-form").style.display = "block";
+  $("#ingest-progress").style.display = "none";
+  $("#prog-close").style.display = "none";
+  providersState = await J("/api/ingest/has_key");
+  // Default the toggle to whichever provider has a key, else xai
+  selectedProvider = providersState.auto_provider || "xai";
+  applyProviderUI();
+  selectedWindow = "all";
+  applyWindowUI();
+}
+function closeModal() { modal.style.display = "none"; }
+$("#add-source-btn").addEventListener("click", openModal);
+$("#close-modal").addEventListener("click", closeModal);
+$("#cancel-ingest").addEventListener("click", closeModal);
+modal.addEventListener("click", e => { if (e.target === modal) closeModal(); });
+
+$("#submit-ingest").addEventListener("click", async () => {
+  const url = $("#in-url").value.trim();
+  if (!url) { $("#in-url").focus(); return; }
+  // Map "custom" → explicit since/until; presets pass through as window.
+  const sinceRaw = $("#in-since")?.value || "";
+  const untilRaw = $("#in-until")?.value || "";
+  const toYYYYMMDD = s => s ? s.replaceAll("-", "") : null;
+  const isCustom = selectedWindow === "custom";
+
+  const payload = {
+    url,
+    source_id: $("#in-id").value.trim() || null,
+    name: $("#in-name").value.trim() || null,
+    domain: $("#in-domain").value.trim() || null,
+    expertise: $("#in-expertise").value.trim() || null,
+    provider: selectedProvider,
+    model: $("#in-model").value.trim() || null,
+    api_key: $("#in-api-key").value.trim() || null,
+    save_api_key: $("#in-save-key").checked,
+    window: isCustom ? "all" : selectedWindow,
+    since: isCustom ? toYYYYMMDD(sinceRaw) : null,
+    until: isCustom ? toYYYYMMDD(untilRaw) : null,
+  };
+  $("#ingest-form").style.display = "none";
+  $("#ingest-progress").style.display = "block";
+  $("#prog-log").textContent = "";
+  $("#prog-bar").style.width = "2%";
+  $("#prog-step").textContent = "queued";
+  $("#prog-msg").textContent = "Submitting…";
+
+  const r = await fetch("/api/ingest", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(payload),
+  });
+  if (!r.ok) {
+    $("#prog-msg").textContent = "Failed to start: " + (await r.text());
+    return;
+  }
+  const { job_id } = await r.json();
+
+  // Wire the Stop button to this job
+  $("#prog-stop").onclick = async () => {
+    $("#prog-stop").disabled = true;
+    $("#prog-stop").textContent = "Stopping…";
+    try {
+      await fetch("/api/ingest/cancel/" + job_id, { method: "POST" });
+    } catch (e) { /* status poll will surface the result anyway */ }
+  };
+  $("#prog-stop").disabled = false;
+  $("#prog-stop").style.display = "inline-block";
+  $("#prog-stop").textContent = "Stop extraction";
+
+  pollIngest(job_id);
+});
+
+async function pollIngest(job_id) {
+  let lastLogLen = 0;
+  while (true) {
+    let s;
+    try {
+      s = await J("/api/ingest/status/" + job_id);
+    } catch (e) {
+      await new Promise(r => setTimeout(r, 800));
+      continue;
+    }
+    $("#prog-step").textContent = s.step || "running";
+    $("#prog-msg").textContent = s.message || "";
+    $("#prog-bar").style.width = (s.percent || 0) + "%";
+    const log = (s.log || []).slice(-200);
+    if (log.length !== lastLogLen) {
+      const el = $("#prog-log");
+      el.textContent = log.join("\n");
+      el.scrollTop = el.scrollHeight;
+      lastLogLen = log.length;
+    }
+    if (s.status === "done" || s.status === "error" || s.status === "awaiting_extraction" || s.status === "cancelled") {
+      $("#prog-stop").style.display = "none";
+      $("#prog-close").style.display = "inline-block";
+      $("#prog-close").textContent =
+        s.status === "done" ? "Close & reload atlas"
+        : "Close";
+      $("#prog-close").onclick = () => {
+        closeModal();
+        if (s.status === "done") location.reload();
+      };
+      return;
+    }
+    await new Promise(r => setTimeout(r, 1200));
+  }
+}
+
+// ---- boot ----
+(async () => {
+  SOURCE = await J("/api/source");
+  KINDS = await J("/api/kinds");
+  CATEGORIES = await J("/api/categories");
+
+  $("#hero-sub").innerHTML = `${SOURCE.cards} cards · ${SOURCE.videos} videos · ${SOURCE.categories} topics`;
+  renderSidebar();
+  setActive($('.nav-item[data-view="all"]'));
+  await render();
+})();
+</script>
+</body>
+</html>

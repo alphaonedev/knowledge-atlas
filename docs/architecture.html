@@ -1,0 +1,516 @@
+<!--
+  Knowledge Atlas
+  Copyright (c) 2026 AlphaOne LLC. All rights reserved.
+  Licensed under the Apache License, Version 2.0. See LICENSE for full terms.
+  SPDX-License-Identifier: Apache-2.0
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta name="copyright" content="© 2026 AlphaOne LLC. All rights reserved.">
+<meta name="license" content="Apache-2.0">
+<meta charset="utf-8">
+<title>Architecture — Knowledge Atlas</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="topnav">
+  <a class="brand" href="index.html">
+    <span class="brand-mark">A</span>
+    <span class="brand-title">Knowledge Atlas</span>
+  </a>
+  <div class="topnav-links">
+    <a href="index.html">Overview</a>
+    <a href="install.html">Install</a>
+    <a href="architecture.html" class="active">Architecture</a>
+    <a class="topnav-cta" href="https://github.com/alphaonedev/knowledge-atlas">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55 0-.27-.01-1.16-.02-2.11-3.2.7-3.87-1.36-3.87-1.36-.52-1.33-1.27-1.68-1.27-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.69 1.24 3.35.95.1-.74.4-1.24.73-1.53-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.18-3.08-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.62 1.58.23 2.75.11 3.04.74.8 1.18 1.82 1.18 3.08 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.06.78 2.13 0 1.54-.01 2.78-.01 3.16 0 .31.21.67.8.55C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z"/>
+      </svg>
+      GitHub
+    </a>
+  </div>
+</nav>
+
+<div class="with-toc">
+  <aside class="toc">
+    <div class="toc-title">On this page</div>
+    <a href="#principles">Design principles</a>
+    <a href="#overview">System overview</a>
+    <a href="#schema">Card schema</a>
+    <a href="#data-model">Data model</a>
+    <a href="#api">HTTP API</a>
+    <a href="#mcp">MCP integration</a>
+    <a href="#ingest">Self-serve ingest</a>
+    <a href="#provider">LLM provider abstraction</a>
+    <a href="#extensibility">Extensibility</a>
+    <a href="#security">Security & privacy</a>
+  </aside>
+
+  <main style="padding:0;">
+    <h1 style="font-family:var(--font-display); font-size:42px; letter-spacing:-0.02em; margin:0 0 8px;">Reference architecture</h1>
+    <p style="font-size:18px; color:var(--text-soft);">
+      How Knowledge Atlas is designed: data flow, components, APIs, MCP, schema, extensibility, security.
+    </p>
+
+    <h2 id="principles">Design principles</h2>
+    <ol>
+      <li><b>SQLite is the single source of truth.</b> Everything else is a view or a service.</li>
+      <li><b>Source is a first-class dimension.</b> Every artifact carries a <code>source_id</code>. The whole API filters, groups, or correlates by it.</li>
+      <li><b>Schema is the contract.</b> Any LLM producing knowledge cards must conform to <code>data/knowledge/SCHEMA.md</code>. Swap providers freely.</li>
+      <li><b>Two surfaces, one backend.</b> Human dashboard and AI agents read the same SQLite via parallel HTTP routes. MCP gives local AIs direct access without HTTP.</li>
+      <li><b>Idempotent rebuild.</b> <code>build_knowledge.py</code> always rebuilds from on-disk JSON. Re-running is safe.</li>
+      <li><b>Localhost-only by default.</b> No cloud, no telemetry, no remote auth. Trust boundary is the machine.</li>
+      <li><b>No metrics.</b> The deliverable is paraphrased knowledge a human can absorb in seconds, not statistics about the corpus.</li>
+    </ol>
+
+    <h2 id="overview">System overview</h2>
+    <div class="diagram">
+    <svg viewBox="0 0 880 460" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Knowledge Atlas full system architecture">
+      <defs>
+        <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#9aa2af"/>
+        </marker>
+        <style>
+          .box { fill:#fff; stroke:#d3d7df; stroke-width:1.5; }
+          .box-a { fill:#ecf1fc; stroke:#2454c8; stroke-width:1.5; }
+          .box-y { fill:#fef6db; stroke:#e6cd86; stroke-width:1.5; }
+          .box-p { fill:#f1ebfb; stroke:#dbcaf2; stroke-width:1.5; }
+          .label { font: 600 13px -apple-system,system-ui,sans-serif; fill:#15171c; }
+          .sub { font: 11px ui-monospace,Menlo,monospace; fill:#6b7280; }
+          .gl { font: 600 11px -apple-system,system-ui,sans-serif; fill:#6b7280; }
+          .ar { stroke:#9aa2af; stroke-width:1.5; fill:none; marker-end:url(#arrow2); }
+        </style>
+      </defs>
+
+      <!-- External: YouTube -->
+      <text x="40" y="36" class="gl">EXTERNAL</text>
+      <rect x="40" y="48" width="150" height="58" rx="8" class="box"/>
+      <text x="115" y="73" class="label" text-anchor="middle">YouTube channel</text>
+      <text x="115" y="92" class="sub" text-anchor="middle">video corpus</text>
+
+      <!-- pipeline -->
+      <text x="220" y="36" class="gl">PIPELINE</text>
+      <rect x="220" y="48" width="150" height="58" rx="8" class="box"/>
+      <text x="295" y="73" class="label" text-anchor="middle">fetch_channel.py</text>
+      <text x="295" y="92" class="sub" text-anchor="middle">yt-dlp transcripts</text>
+
+      <rect x="400" y="48" width="150" height="58" rx="8" class="box-a"/>
+      <text x="475" y="73" class="label" text-anchor="middle">extract_knowledge.py</text>
+      <text x="475" y="92" class="sub" text-anchor="middle">LLM extraction</text>
+
+      <rect x="580" y="48" width="150" height="58" rx="8" class="box"/>
+      <text x="655" y="73" class="label" text-anchor="middle">build_knowledge.py</text>
+      <text x="655" y="92" class="sub" text-anchor="middle">aggregator</text>
+
+      <path class="ar" d="M 190 76 L 220 76"/>
+      <path class="ar" d="M 370 76 L 400 76"/>
+      <path class="ar" d="M 550 76 L 580 76"/>
+
+      <!-- intermediate files -->
+      <rect x="220" y="142" width="150" height="50" rx="8" class="box" stroke-dasharray="4 3"/>
+      <text x="295" y="163" class="sub" text-anchor="middle" font-weight="600">sources/&lt;id&gt;/</text>
+      <text x="295" y="180" class="sub" text-anchor="middle">transcripts/*.txt</text>
+
+      <rect x="400" y="142" width="150" height="50" rx="8" class="box" stroke-dasharray="4 3"/>
+      <text x="475" y="163" class="sub" text-anchor="middle" font-weight="600">data/knowledge/</text>
+      <text x="475" y="180" class="sub" text-anchor="middle">&lt;vid&gt;.json (cards)</text>
+
+      <path class="ar" d="M 295 106 L 295 142"/>
+      <path class="ar" d="M 475 106 L 475 142"/>
+      <path class="ar" d="M 370 168 L 400 168" stroke-dasharray="3 2"/>
+      <path class="ar" d="M 550 168 L 655 106"/>
+
+      <!-- SQLite -->
+      <text x="40" y="234" class="gl">DATA TIER</text>
+      <rect x="290" y="240" width="300" height="76" rx="10" class="box-y"/>
+      <text x="440" y="270" class="label" text-anchor="middle">SQLite atlas (data/knowledge.db)</text>
+      <text x="440" y="290" class="sub" text-anchor="middle">tables: sources · videos · cards · framework_steps</text>
+      <text x="440" y="306" class="sub" text-anchor="middle">FTS5 virtual table: cards_fts (porter unicode61)</text>
+
+      <path class="ar" d="M 655 106 L 590 240"/>
+
+      <!-- Service tier -->
+      <text x="40" y="346" class="gl">SERVICE TIER</text>
+      <rect x="40" y="358" width="200" height="72" rx="8" class="box"/>
+      <text x="140" y="383" class="label" text-anchor="middle">app.py · Flask</text>
+      <text x="140" y="402" class="sub" text-anchor="middle">/api/* · /ai/* · /ai/cross/*</text>
+      <text x="140" y="418" class="sub" text-anchor="middle">/api/ingest (self-serve)</text>
+
+      <rect x="260" y="358" width="200" height="72" rx="8" class="box-p"/>
+      <text x="360" y="383" class="label" text-anchor="middle">mcp_server.py</text>
+      <text x="360" y="402" class="sub" text-anchor="middle">10 tools · stdio JSON-RPC</text>
+      <text x="360" y="418" class="sub" text-anchor="middle">direct SQLite access</text>
+
+      <path class="ar" d="M 380 316 L 140 358"/>
+      <path class="ar" d="M 440 316 L 360 358"/>
+
+      <!-- Presentation -->
+      <text x="500" y="346" class="gl">PRESENTATION</text>
+      <rect x="500" y="358" width="170" height="72" rx="8" class="box"/>
+      <text x="585" y="383" class="label" text-anchor="middle">Browser SPA</text>
+      <text x="585" y="402" class="sub" text-anchor="middle">templates/index.html</text>
+      <text x="585" y="418" class="sub" text-anchor="middle">⌘K search · sortable</text>
+
+      <rect x="690" y="358" width="170" height="72" rx="8" class="box"/>
+      <text x="775" y="383" class="label" text-anchor="middle">AI clients</text>
+      <text x="775" y="402" class="sub" text-anchor="middle">Claude Desktop · Code</text>
+      <text x="775" y="418" class="sub" text-anchor="middle">Cursor · Cline · ...</text>
+
+      <path class="ar" d="M 240 394 L 500 394"/>
+      <path class="ar" d="M 460 394 L 690 394"/>
+    </svg>
+    <div class="caption">External sources are downloaded by the pipeline, distilled by an LLM, and aggregated into SQLite. Two service layers (Flask + MCP) read from the same data tier and feed two presentation contexts.</div>
+    </div>
+
+    <h2 id="schema">Card schema — the contract</h2>
+    <p>Every JSON file in <code>data/knowledge/</code> must conform to this:</p>
+    <pre><code>{
+  "video_id": "string",
+  "video_title": "string",
+  "video_url": "https://www.youtube.com/watch?v=...",
+  "one_line": "single-sentence core thesis (≤ 25 words)",
+  "best_for": "watch this if you... (one sentence)",
+  "categories": ["topical tags"],
+  "cards": [
+    {
+      "kind": "principle | tactic | warning | framework | mental_model | phrase | quote",
+      "category": "topical category",
+      "title": "5-10 word title",
+      "content": "1-3 clean sentences — the knowledge itself, paraphrased",
+      "reasoning": "optional: why it works",
+      "source_quote": "optional: ≤30-word anchor quote",
+      "framework_steps": ["only when kind=framework"]
+    }
+  ]
+}</code></pre>
+    <p>See <a href="https://github.com/alphaonedev/knowledge-atlas/blob/main/data/knowledge/SCHEMA.md">SCHEMA.md</a> for the full extraction rules.</p>
+
+    <h2 id="data-model">SQLite data model</h2>
+    <div class="diagram">
+    <svg viewBox="0 0 880 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="SQLite data model">
+      <defs>
+        <style>
+          .t-box { fill:#fff; stroke:#2454c8; stroke-width:1.5; }
+          .t-aux { fill:#fff; stroke:#d3d7df; stroke-width:1.5; }
+          .t-fts { fill:#fef6db; stroke:#e6cd86; stroke-width:1.5; }
+          .t-title { font: 700 13px -apple-system,system-ui,sans-serif; fill:#15171c; }
+          .t-field { font: 12px ui-monospace,Menlo,monospace; fill:#3a404b; }
+          .t-pk { fill:#2454c8; font-weight:700; }
+          .t-rel { stroke:#6b7280; stroke-width:1.2; fill:none; }
+        </style>
+      </defs>
+
+      <!-- sources -->
+      <rect x="20" y="30" width="180" height="180" rx="6" class="t-box"/>
+      <text x="110" y="50" class="t-title" text-anchor="middle">sources</text>
+      <line x1="20" y1="58" x2="200" y2="58" stroke="#d3d7df"/>
+      <text x="32" y="78" class="t-field"><tspan class="t-pk">id</tspan> (PK)</text>
+      <text x="32" y="96" class="t-field">name</text>
+      <text x="32" y="114" class="t-field">kind</text>
+      <text x="32" y="132" class="t-field">url</text>
+      <text x="32" y="150" class="t-field">domain</text>
+      <text x="32" y="168" class="t-field">expertise</text>
+      <text x="32" y="186" class="t-field">first_indexed</text>
+      <text x="32" y="204" class="t-field">trust_notes</text>
+
+      <!-- videos -->
+      <rect x="260" y="30" width="180" height="160" rx="6" class="t-box"/>
+      <text x="350" y="50" class="t-title" text-anchor="middle">videos</text>
+      <line x1="260" y1="58" x2="440" y2="58" stroke="#d3d7df"/>
+      <text x="272" y="78" class="t-field"><tspan class="t-pk">id</tspan> (PK)</text>
+      <text x="272" y="96" class="t-field">source_id (FK)</text>
+      <text x="272" y="114" class="t-field">title</text>
+      <text x="272" y="132" class="t-field">url</text>
+      <text x="272" y="150" class="t-field">one_line</text>
+      <text x="272" y="168" class="t-field">best_for</text>
+
+      <!-- cards -->
+      <rect x="500" y="30" width="200" height="180" rx="6" class="t-box"/>
+      <text x="600" y="50" class="t-title" text-anchor="middle">cards</text>
+      <line x1="500" y1="58" x2="700" y2="58" stroke="#d3d7df"/>
+      <text x="512" y="78" class="t-field"><tspan class="t-pk">id</tspan> (PK)</text>
+      <text x="512" y="96" class="t-field">video_id (FK)</text>
+      <text x="512" y="114" class="t-field">source_id</text>
+      <text x="512" y="132" class="t-field">kind</text>
+      <text x="512" y="150" class="t-field">category</text>
+      <text x="512" y="168" class="t-field">title</text>
+      <text x="512" y="186" class="t-field">content</text>
+      <text x="512" y="204" class="t-field">reasoning · source_quote</text>
+
+      <!-- framework_steps -->
+      <rect x="500" y="240" width="200" height="100" rx="6" class="t-aux"/>
+      <text x="600" y="260" class="t-title" text-anchor="middle">framework_steps</text>
+      <line x1="500" y1="268" x2="700" y2="268" stroke="#d3d7df"/>
+      <text x="512" y="288" class="t-field">card_id (FK)</text>
+      <text x="512" y="306" class="t-field">step_number</text>
+      <text x="512" y="324" class="t-field">step_content</text>
+
+      <!-- video_categories -->
+      <rect x="260" y="240" width="180" height="80" rx="6" class="t-aux"/>
+      <text x="350" y="260" class="t-title" text-anchor="middle">video_categories</text>
+      <line x1="260" y1="268" x2="440" y2="268" stroke="#d3d7df"/>
+      <text x="272" y="288" class="t-field">video_id (FK)</text>
+      <text x="272" y="306" class="t-field">category</text>
+
+      <!-- cards_fts -->
+      <rect x="720" y="30" width="150" height="160" rx="6" class="t-fts"/>
+      <text x="795" y="50" class="t-title" text-anchor="middle">cards_fts (FTS5)</text>
+      <line x1="720" y1="58" x2="870" y2="58" stroke="#d3d7df"/>
+      <text x="732" y="78" class="t-field">card_id</text>
+      <text x="732" y="96" class="t-field">title</text>
+      <text x="732" y="114" class="t-field">content</text>
+      <text x="732" y="132" class="t-field">reasoning</text>
+      <text x="732" y="150" class="t-field">source_quote</text>
+      <text x="732" y="172" class="t-field" font-style="italic">porter unicode61</text>
+
+      <!-- relationships -->
+      <path class="t-rel" d="M 200 96 L 260 96"/>
+      <path class="t-rel" d="M 440 96 L 500 96"/>
+      <path class="t-rel" d="M 600 210 L 600 240"/>
+      <path class="t-rel" d="M 350 190 L 350 240"/>
+      <path class="t-rel" d="M 700 110 L 720 110" stroke-dasharray="3 2"/>
+    </svg>
+    <div class="caption">Three primary tables (<code>sources</code>, <code>videos</code>, <code>cards</code>) plus a framework-step child table and an FTS5 virtual table for full-text search.</div>
+    </div>
+
+    <h2 id="api">HTTP API</h2>
+    <h3>/api/* — human dashboard</h3>
+    <table>
+      <thead><tr><th>Endpoint</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>GET /api/source</code></td><td>source overview</td></tr>
+        <tr><td><code>GET /api/kinds</code></td><td>card-kind counts</td></tr>
+        <tr><td><code>GET /api/categories</code></td><td>topical categories</td></tr>
+        <tr><td><code>GET /api/cards?kind=&amp;category=&amp;video=</code></td><td>filterable cards</td></tr>
+        <tr><td><code>GET /api/card/&lt;id&gt;</code></td><td>one card</td></tr>
+        <tr><td><code>GET /api/videos</code></td><td>all videos</td></tr>
+        <tr><td><code>GET /api/video/&lt;vid&gt;</code></td><td>video + its cards</td></tr>
+        <tr><td><code>GET /api/search?q=</code></td><td>FTS5 search</td></tr>
+        <tr><td><code>POST /api/ingest</code></td><td>self-serve onboarding</td></tr>
+        <tr><td><code>GET /api/ingest/status/&lt;job_id&gt;</code></td><td>live job status</td></tr>
+      </tbody>
+    </table>
+
+    <h3>/ai/* — autonomous agent surface</h3>
+    <p>Every response returns the <code>video_url</code> for citation.</p>
+    <table>
+      <thead><tr><th>Endpoint</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>GET /ai/manifest</code></td><td>discovery doc</td></tr>
+        <tr><td><code>GET /ai/sources</code></td><td>indexed experts with size</td></tr>
+        <tr><td><code>GET /ai/categories</code></td><td>topic taxonomy</td></tr>
+        <tr><td><code>GET /ai/cards</code></td><td>filterable card stream</td></tr>
+        <tr><td><code>GET /ai/search?q=&amp;include=...</code></td><td>OR-matched FTS</td></tr>
+        <tr><td><code>GET /ai/atlas</code></td><td>full atlas grouped by category</td></tr>
+        <tr><td><code>GET /ai/learn/&lt;category&gt;</code></td><td>study packet, kind-ordered</td></tr>
+        <tr><td><code>GET /ai/teach?q=&lt;question&gt;</code></td><td>question → teaching packet</td></tr>
+      </tbody>
+    </table>
+
+    <h3>/ai/cross/* — multi-source correlation</h3>
+    <table>
+      <thead><tr><th>Endpoint</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>GET /ai/cross/coverage</code></td><td>which sources cover which topics</td></tr>
+        <tr><td><code>GET /ai/cross/concept/&lt;term&gt;</code></td><td>every source's take on a concept</td></tr>
+        <tr><td><code>GET /ai/cross/compendium/&lt;category&gt;</code></td><td>every source's cards on a topic</td></tr>
+        <tr><td><code>GET /ai/cross/consensus</code></td><td>cross-source card pairs that match</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="mcp">MCP integration</h2>
+    <p>
+      The Model Context Protocol server bridges the atlas to AI clients that can't reach
+      localhost HTTP (Claude Desktop sandbox, claude.ai web, etc.). The MCP server bypasses
+      Flask and reads SQLite in-process — it works even when the dashboard isn't running.
+    </p>
+
+    <div class="diagram">
+    <svg viewBox="0 0 880 280" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="MCP integration">
+      <defs>
+        <marker id="arrow3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#9aa2af"/>
+        </marker>
+        <marker id="arrow3b" viewBox="0 0 10 10" refX="0" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+          <path d="M 10 0 L 0 5 L 10 10 z" fill="#9aa2af"/>
+        </marker>
+        <style>
+          .m-box { fill:#fff; stroke:#d3d7df; stroke-width:1.5; }
+          .m-mcp { fill:#f1ebfb; stroke:#dbcaf2; stroke-width:1.5; }
+          .m-db  { fill:#fef6db; stroke:#e6cd86; stroke-width:1.5; }
+          .m-lbl { font: 600 14px -apple-system,system-ui,sans-serif; fill:#15171c; }
+          .m-sub { font: 12px ui-monospace,Menlo,monospace; fill:#6b7280; }
+          .m-pipe { stroke:#9aa2af; stroke-width:1.5; fill:none; }
+        </style>
+      </defs>
+
+      <!-- Client -->
+      <rect x="40" y="80" width="220" height="120" rx="10" class="m-box"/>
+      <text x="150" y="112" class="m-lbl" text-anchor="middle">AI Client</text>
+      <text x="150" y="138" class="m-sub" text-anchor="middle">Claude Desktop</text>
+      <text x="150" y="156" class="m-sub" text-anchor="middle">Claude Code · Cursor</text>
+      <text x="150" y="174" class="m-sub" text-anchor="middle">Cline · custom</text>
+
+      <!-- stdio pipe -->
+      <path d="M 260 130 L 380 130" class="m-pipe" marker-end="url(#arrow3)"/>
+      <path d="M 380 150 L 260 150" class="m-pipe" marker-end="url(#arrow3b)"/>
+      <text x="320" y="115" class="m-sub" text-anchor="middle" font-style="italic">stdio</text>
+      <text x="320" y="175" class="m-sub" text-anchor="middle" font-style="italic">JSON-RPC</text>
+
+      <!-- MCP server -->
+      <rect x="380" y="60" width="220" height="160" rx="10" class="m-mcp"/>
+      <text x="490" y="92" class="m-lbl" text-anchor="middle">mcp_server.py</text>
+      <text x="490" y="110" class="m-sub" text-anchor="middle">(subprocess of client)</text>
+      <line x1="400" y1="118" x2="580" y2="118" stroke="#dbcaf2"/>
+      <text x="490" y="138" class="m-sub" text-anchor="middle">list_sources · search_knowledge</text>
+      <text x="490" y="156" class="m-sub" text-anchor="middle">teach_about · learn_category</text>
+      <text x="490" y="174" class="m-sub" text-anchor="middle">cross_concept · cross_compendium</text>
+      <text x="490" y="192" class="m-sub" text-anchor="middle">cross_coverage · get_card</text>
+      <text x="490" y="210" class="m-sub" text-anchor="middle">list_videos · list_categories</text>
+
+      <!-- DB -->
+      <path d="M 600 140 L 700 140" class="m-pipe" marker-end="url(#arrow3)"/>
+      <rect x="700" y="100" width="160" height="80" rx="8" class="m-db"/>
+      <text x="780" y="130" class="m-lbl" text-anchor="middle">SQLite</text>
+      <text x="780" y="152" class="m-sub" text-anchor="middle">knowledge.db</text>
+      <text x="780" y="170" class="m-sub" text-anchor="middle">(read-only)</text>
+    </svg>
+    <div class="caption">The MCP server speaks stdio JSON-RPC to the client and reads SQLite directly. It does not require Flask to be running.</div>
+    </div>
+
+    <h3>Client config</h3>
+    <p><b>Claude Desktop</b> (<code>~/Library/Application Support/Claude/claude_desktop_config.json</code>):</p>
+    <pre><code>{
+  "mcpServers": {
+    "knowledge-atlas": {
+      "command": "/absolute/path/to/python3",
+      "args": ["/absolute/path/to/knowledge-atlas/mcp_server.py"]
+    }
+  }
+}</code></pre>
+
+    <p><b>Claude Code</b>:</p>
+    <pre><code>claude mcp add knowledge-atlas --scope user -- \
+  /absolute/path/to/python3 /absolute/path/to/knowledge-atlas/mcp_server.py</code></pre>
+
+    <h2 id="ingest">Self-serve ingestion</h2>
+    <p>
+      The dashboard exposes an <b>Index expert</b> modal that fires off the full pipeline as a
+      background job. The user pastes a URL + API key (saved chmod 600 to <code>.env</code>) and
+      watches the streaming subprocess log.
+    </p>
+    <pre><code>Browser            Flask /api/ingest           Background thread
+──────             ─────────────────           ─────────────────
+POST { url,    →   spawn thread                register source
+       api_key }   return job_id            →  fetch_channel.py (streaming)
+                                            →  extract_knowledge.py (streaming)
+GET /api/ingest                             →  build_knowledge.py
+    /status/&lt;id&gt;   ←   { step, percent, log }
+(poll loop)        ←   { status:done }
+                       reload UI</code></pre>
+
+    <h2 id="provider">LLM provider abstraction</h2>
+    <p><code>extract_knowledge.py</code> is provider-agnostic by design:</p>
+    <pre><code>def make_client(provider, api_key):
+    if provider == "xai":
+        from openai import OpenAI
+        return OpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
+    if provider == "anthropic":
+        from anthropic import Anthropic
+        return Anthropic(api_key=api_key)
+    raise ValueError(f"unknown provider: {provider}")</code></pre>
+    <p>Auto-detection priority: <code>--provider</code> flag → <code>XAI_API_KEY</code> → <code>ANTHROPIC_API_KEY</code> → fail.</p>
+
+    <h3>Adding a new provider</h3>
+    <ol>
+      <li>Add the SDK to <code>requirements.txt</code>.</li>
+      <li>Add a <code>call_&lt;provider&gt;()</code> function returning the model's text response.</li>
+      <li>Register the provider in <code>DEFAULTS</code> and <code>make_client()</code>.</li>
+      <li>Add the env var name to <code>PROVIDER_ENV</code> in <code>app.py</code>.</li>
+    </ol>
+
+    <h2 id="extensibility">Extensibility</h2>
+    <table>
+      <thead><tr><th>Want to…</th><th>How</th></tr></thead>
+      <tbody>
+        <tr><td>Index a new YouTube channel</td><td><code>python3 add_source.py --id ... --url ...</code></td></tr>
+        <tr><td>Index a non-YouTube source (podcast RSS, Substack, etc.)</td><td>Write a custom fetcher producing <code>sources/&lt;id&gt;/transcripts/&lt;vid&gt;.txt</code>. The rest is source-agnostic.</td></tr>
+        <tr><td>Use a different LLM</td><td>Add a <code>call_&lt;provider&gt;()</code> function — see above.</td></tr>
+        <tr><td>Add a new card kind</td><td>Extend <code>VALID_KINDS</code>, update SCHEMA.md, add color tokens to the UI.</td></tr>
+        <tr><td>Add a new endpoint</td><td>Drop a Flask route in <code>app.py</code>; add a matching MCP tool in <code>mcp_server.py</code>.</td></tr>
+        <tr><td>Expose to a non-localhost AI</td><td>Tunnel via cloudflared/ngrok. <b>Add auth first</b> — no built-in auth by design.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="security">Security & privacy model</h2>
+    <table>
+      <thead><tr><th>Concern</th><th>Mitigation</th></tr></thead>
+      <tbody>
+        <tr><td>API keys</td><td>Local <code>.env</code> only (chmod 600). Never logged. Never sent to the browser.</td></tr>
+        <tr><td>Network exposure</td><td>Flask binds <code>127.0.0.1</code> only. Nothing on a public interface.</td></tr>
+        <tr><td>Indexed content</td><td>Transcripts and cards stay on disk in gitignored directories.</td></tr>
+        <tr><td>Auth</td><td>None — localhost trust model. Tunnel out only with added auth.</td></tr>
+        <tr><td>Subprocess hygiene</td><td><code>subprocess.Popen</code> calls never use <code>shell=True</code>. Args passed as lists.</td></tr>
+        <tr><td>MCP exposure</td><td>The MCP server reads SQLite read-only. Cannot mutate data. Cannot reach the network.</td></tr>
+      </tbody>
+    </table>
+
+  </main>
+</div>
+
+<footer>
+  <div class="footer-grid">
+    <div class="footer-col">
+      <div class="footer-brand">
+        <span class="brand-mark">A</span>
+        <span class="brand-title">Knowledge Atlas</span>
+      </div>
+      <p class="footer-meta">
+        © 2026 AlphaOne LLC. All rights reserved.<br>
+        Licensed under the Apache License, Version 2.0.
+      </p>
+    </div>
+    <div class="footer-col">
+      <h4>Project</h4>
+      <a href="index.html">Overview</a>
+      <a href="install.html">Install</a>
+      <a href="architecture.html">Architecture</a>
+      <a href="https://github.com/alphaonedev/knowledge-atlas">GitHub repository</a>
+      <a href="https://github.com/alphaonedev/knowledge-atlas/blob/main/LICENSE">License (Apache 2.0)</a>
+      <a href="https://github.com/alphaonedev/knowledge-atlas/blob/main/NOTICE">NOTICE</a>
+    </div>
+    <div class="footer-col">
+      <h4>Legal &amp; Disclaimers</h4>
+      <p class="footer-disclaimer">
+        <b>No warranty.</b> This software is provided &ldquo;AS IS&rdquo; without warranty of any
+        kind, express or implied. AlphaOne LLC and contributors are not liable
+        for any claim or damages arising from the use of this software or any
+        output it produces. See <a href="https://github.com/alphaonedev/knowledge-atlas/blob/main/LICENSE">LICENSE</a> for full terms.
+      </p>
+      <p class="footer-disclaimer">
+        <b>Not professional advice.</b> Knowledge cards produced by this software
+        are AI-generated paraphrases of third-party content and reflect the
+        original speakers&rsquo; opinions, not those of AlphaOne LLC. Cards are not
+        legal, financial, medical, or any other professional advice. Always
+        verify against the cited source and consult qualified professionals.
+      </p>
+      <p class="footer-disclaimer">
+        <b>Third-party content.</b> Users running this pipeline against external
+        sources are solely responsible for compliance with all applicable terms
+        of service, copyright, and fair-use rules. YouTube&reg; is a trademark of
+        Google&nbsp;LLC; Claude&reg; is a trademark of Anthropic&nbsp;PBC; Grok and xAI
+        are trademarks of X.AI&nbsp;Corp. — used here for nominative reference only.
+      </p>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <span>Knowledge Atlas v1.0 &middot; built with care by AlphaOne LLC</span>
+    <span>SPDX-License-Identifier: Apache-2.0</span>
+  </div>
+</footer>
+
+</body>
+</html>

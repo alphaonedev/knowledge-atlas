@@ -1,0 +1,38 @@
+# --- Secrets ---
+.env
+*.env.local
+secrets.json
+
+# --- Per-source data (raw transcripts, derived knowledge) ---
+# Anything indexed from third-party sources stays out of the repo.
+transcripts/
+raw_srt/
+sources/
+channel_metadata.json
+sources.json
+data/knowledge/*.json
+data/knowledge.db
+data/lexicon.db
+data/export/
+
+# --- Static assets generated at build time ---
+static/charts/
+
+# --- Python build artifacts ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# --- macOS / editor noise ---
+.DS_Store
+*.swp
+.vscode/
+.idea/
+
+# --- Logs / backups ---
+*.log
+*.bak
+*.bak-*

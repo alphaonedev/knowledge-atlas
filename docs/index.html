@@ -1,0 +1,280 @@
+<!--
+  Knowledge Atlas
+  Copyright (c) 2026 AlphaOne LLC. All rights reserved.
+  Licensed under the Apache License, Version 2.0. See LICENSE for full terms.
+  SPDX-License-Identifier: Apache-2.0
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta name="copyright" content="© 2026 AlphaOne LLC. All rights reserved.">
+<meta name="license" content="Apache-2.0">
+<meta charset="utf-8">
+<title>Knowledge Atlas — distilled knowledge from any expert</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Self-hosted pipeline that turns any domain expert's video corpus into a queryable, AI-consumable knowledge base. Localhost-first. MCP-native.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="topnav">
+  <a class="brand" href="index.html">
+    <span class="brand-mark">A</span>
+    <span class="brand-title">Knowledge Atlas</span>
+  </a>
+  <div class="topnav-links">
+    <a href="index.html" class="active">Overview</a>
+    <a href="install.html">Install</a>
+    <a href="architecture.html">Architecture</a>
+    <a class="topnav-cta" href="https://github.com/alphaonedev/knowledge-atlas">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55 0-.27-.01-1.16-.02-2.11-3.2.7-3.87-1.36-3.87-1.36-.52-1.33-1.27-1.68-1.27-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.69 1.24 3.35.95.1-.74.4-1.24.73-1.53-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.18-3.08-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.62 1.58.23 2.75.11 3.04.74.8 1.18 1.82 1.18 3.08 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.06.78 2.13 0 1.54-.01 2.78-.01 3.16 0 .31.21.67.8.55C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z"/>
+      </svg>
+      GitHub
+    </a>
+  </div>
+</nav>
+
+<section class="hero">
+  <h1>Distilled knowledge from any expert, for humans and AI.</h1>
+  <p class="tagline">
+    A self-hosted pipeline that turns any subject-matter expert's video corpus into
+    a queryable knowledge base. Localhost-first. MCP-native. The deliverable is
+    paraphrased, attributable knowledge — not raw transcripts and not statistics.
+  </p>
+  <div class="actions">
+    <a href="install.html" class="btn btn-primary">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+      Install
+    </a>
+    <a href="architecture.html" class="btn btn-ghost">Read the architecture</a>
+  </div>
+</section>
+
+<main>
+
+<h2>What it produces</h2>
+<p>
+  For every video in an indexed source, an LLM produces 4–12
+  <b>knowledge cards</b> — each a standalone, paraphrased nugget classified by kind,
+  with provenance back to a specific timecoded YouTube source.
+</p>
+
+<div style="display:flex; gap:6px; flex-wrap:wrap; margin: 18px 0;">
+  <span class="kind-pill kind-principle">principle</span>
+  <span class="kind-pill kind-tactic">tactic</span>
+  <span class="kind-pill kind-warning">warning</span>
+  <span class="kind-pill kind-framework">framework</span>
+  <span class="kind-pill kind-mental_model">mental model</span>
+  <span class="kind-pill kind-phrase">phrase</span>
+  <span class="kind-pill kind-quote">quote</span>
+</div>
+
+<h2>Three ways to consume</h2>
+<div class="surface-grid">
+  <div class="surface-card">
+    <div class="kicker">For humans</div>
+    <h3>Web dashboard</h3>
+    <p>A polished localhost SPA. Browse by topic, kind, or source. ⌘K to search. Click into any card for the cited video.</p>
+  </div>
+  <div class="surface-card">
+    <div class="kicker">For agents</div>
+    <h3>HTTP/JSON API</h3>
+    <p>Stable endpoints for autonomous agents — <code>/ai/manifest</code>, <code>/ai/teach</code>, <code>/ai/cross/concept/&lt;term&gt;</code>. Discovery built in.</p>
+  </div>
+  <div class="surface-card">
+    <div class="kicker">For Claude</div>
+    <h3>MCP server</h3>
+    <p>Drop-in tool surface for Claude Desktop, Claude Code, Cursor, Cline, and any MCP client. 10 tools, stdio JSON-RPC.</p>
+  </div>
+</div>
+
+<h2>System overview</h2>
+<div class="diagram">
+<svg viewBox="0 0 880 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Knowledge Atlas system overview">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#9aa2af"/>
+    </marker>
+    <style>
+      .box { fill:#fff; stroke:#d3d7df; stroke-width:1.5; }
+      .box-accent { fill:#ecf1fc; stroke:#2454c8; stroke-width:1.5; }
+      .box-yellow { fill:#fef6db; stroke:#e6cd86; stroke-width:1.5; }
+      .label { font: 600 13px -apple-system,system-ui,sans-serif; fill:#15171c; }
+      .sublabel { font: 11px ui-monospace,Menlo,monospace; fill:#6b7280; }
+      .group-label { font: 600 11px -apple-system,system-ui,sans-serif; fill:#6b7280; text-transform:uppercase; letter-spacing:0.08em; }
+      .arrow { stroke:#9aa2af; stroke-width:1.5; fill:none; marker-end:url(#arrow); }
+    </style>
+  </defs>
+
+  <!-- Row 1: pipeline stages -->
+  <text x="40" y="36" class="group-label">Stage 1 · Register</text>
+  <rect x="40" y="48" width="150" height="64" rx="8" class="box"/>
+  <text x="115" y="74" class="label" text-anchor="middle">sources.json</text>
+  <text x="115" y="93" class="sublabel" text-anchor="middle">registry</text>
+
+  <text x="220" y="36" class="group-label">Stage 2 · Fetch</text>
+  <rect x="220" y="48" width="150" height="64" rx="8" class="box"/>
+  <text x="295" y="74" class="label" text-anchor="middle">fetch_channel.py</text>
+  <text x="295" y="93" class="sublabel" text-anchor="middle">yt-dlp transcripts</text>
+
+  <text x="400" y="36" class="group-label">Stage 3 · Extract</text>
+  <rect x="400" y="48" width="150" height="64" rx="8" class="box-accent"/>
+  <text x="475" y="74" class="label" text-anchor="middle">extract_knowledge.py</text>
+  <text x="475" y="93" class="sublabel" text-anchor="middle">LLM · xAI / Anthropic</text>
+
+  <text x="580" y="36" class="group-label">Stage 4 · Aggregate</text>
+  <rect x="580" y="48" width="150" height="64" rx="8" class="box"/>
+  <text x="655" y="74" class="label" text-anchor="middle">build_knowledge.py</text>
+  <text x="655" y="93" class="sublabel" text-anchor="middle">aggregator</text>
+
+  <!-- arrows row 1 -->
+  <path class="arrow" d="M 190 80 L 220 80"/>
+  <path class="arrow" d="M 370 80 L 400 80"/>
+  <path class="arrow" d="M 550 80 L 580 80"/>
+
+  <!-- arrow down to SQLite -->
+  <path class="arrow" d="M 655 112 L 655 160"/>
+
+  <!-- SQLite center -->
+  <rect x="540" y="160" width="230" height="64" rx="8" class="box-yellow"/>
+  <text x="655" y="186" class="label" text-anchor="middle">SQLite atlas (knowledge.db)</text>
+  <text x="655" y="205" class="sublabel" text-anchor="middle">+ FTS5 full-text index</text>
+
+  <!-- fan-out to surfaces -->
+  <path class="arrow" d="M 600 224 L 130 280"/>
+  <path class="arrow" d="M 630 224 L 350 280"/>
+  <path class="arrow" d="M 680 224 L 565 280"/>
+  <path class="arrow" d="M 710 224 L 770 280"/>
+
+  <!-- Row 3: surfaces -->
+  <text x="40" y="270" class="group-label">Stage 5 · Serve</text>
+  <rect x="40" y="280" width="170" height="62" rx="8" class="box"/>
+  <text x="125" y="305" class="label" text-anchor="middle">Flask /api/*</text>
+  <text x="125" y="324" class="sublabel" text-anchor="middle">human dashboard</text>
+
+  <rect x="240" y="280" width="170" height="62" rx="8" class="box"/>
+  <text x="325" y="305" class="label" text-anchor="middle">Flask /ai/*</text>
+  <text x="325" y="324" class="sublabel" text-anchor="middle">agent surface</text>
+
+  <rect x="440" y="280" width="170" height="62" rx="8" class="box"/>
+  <text x="525" y="305" class="label" text-anchor="middle">/ai/cross/*</text>
+  <text x="525" y="324" class="sublabel" text-anchor="middle">multi-source</text>
+
+  <rect x="640" y="280" width="170" height="62" rx="8" class="box-accent"/>
+  <text x="725" y="305" class="label" text-anchor="middle">MCP server (stdio)</text>
+  <text x="725" y="324" class="sublabel" text-anchor="middle">Claude · Cursor · ...</text>
+</svg>
+<div class="caption">All four pipeline stages feed one SQLite store. Four parallel surfaces read from it — three over HTTP, one over MCP stdio.</div>
+</div>
+
+<h2>Why it's valuable</h2>
+<div class="feature-grid">
+  <div class="feature">
+    <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
+    <h3>Knowledge, not metrics</h3>
+    <p>No sentiment scores, no readability indices, no word counts. The deliverable is paraphrased, comprehensible nuggets a human can absorb in seconds.</p>
+  </div>
+  <div class="feature">
+    <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>
+    <h3>Cross-source by design</h3>
+    <p>Every card carries a <code>source_id</code>. Index 2+ experts and <code>/ai/cross/*</code> surfaces consensus, conflict, and coverage automatically.</p>
+  </div>
+  <div class="feature">
+    <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>
+    <h3>One schema, any LLM</h3>
+    <p>The card contract is fixed. Swap xAI Grok for Anthropic Claude or any other provider by writing one function — the atlas doesn't care who extracted.</p>
+  </div>
+  <div class="feature">
+    <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg></div>
+    <h3>Localhost trust model</h3>
+    <p>Binds to 127.0.0.1 by default. No cloud, no telemetry, no remote auth. API keys live in a chmod-600 <code>.env</code>. Your atlas stays on your machine.</p>
+  </div>
+  <div class="feature">
+    <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+    <h3>Always cite the source</h3>
+    <p>Every card includes <code>video_url</code>. The AI you point at this surface can always hand the human a verifiable timecoded link.</p>
+  </div>
+  <div class="feature">
+    <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
+    <h3>Self-serve onboarding</h3>
+    <p>Click <b>Index expert</b> in the dashboard, paste a YouTube URL, watch the pipeline run live. No CLI required after install.</p>
+  </div>
+</div>
+
+<h2>Try a teaching prompt</h2>
+<p>Once Claude Desktop or Claude Code is wired in via MCP, ask:</p>
+<pre><code>Teach me about cross-examination using the knowledge-atlas tools.
+
+What do my indexed experts say about negotiating with a narcissist?
+Cite source videos.
+
+Show me cross-source coverage and tell me which topics are deepest.</code></pre>
+
+<h2>Ready to install?</h2>
+<p>
+  Five minutes to first knowledge card. Two minutes to wire Claude Desktop in via MCP.
+</p>
+<p>
+  <a href="install.html" class="btn btn-primary">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+    Install guide
+  </a>
+  <a href="architecture.html" class="btn btn-ghost" style="margin-left:8px;">Reference architecture</a>
+</p>
+
+</main>
+
+<footer>
+  <div class="footer-grid">
+    <div class="footer-col">
+      <div class="footer-brand">
+        <span class="brand-mark">A</span>
+        <span class="brand-title">Knowledge Atlas</span>
+      </div>
+      <p class="footer-meta">
+        © 2026 AlphaOne LLC. All rights reserved.<br>
+        Licensed under the Apache License, Version 2.0.
+      </p>
+    </div>
+    <div class="footer-col">
+      <h4>Project</h4>
+      <a href="index.html">Overview</a>
+      <a href="install.html">Install</a>
+      <a href="architecture.html">Architecture</a>
+      <a href="https://github.com/alphaonedev/knowledge-atlas">GitHub repository</a>
+      <a href="https://github.com/alphaonedev/knowledge-atlas/blob/main/LICENSE">License (Apache 2.0)</a>
+      <a href="https://github.com/alphaonedev/knowledge-atlas/blob/main/NOTICE">NOTICE</a>
+    </div>
+    <div class="footer-col">
+      <h4>Legal &amp; Disclaimers</h4>
+      <p class="footer-disclaimer">
+        <b>No warranty.</b> This software is provided &ldquo;AS IS&rdquo; without warranty of any
+        kind, express or implied. AlphaOne LLC and contributors are not liable
+        for any claim or damages arising from the use of this software or any
+        output it produces. See <a href="https://github.com/alphaonedev/knowledge-atlas/blob/main/LICENSE">LICENSE</a> for full terms.
+      </p>
+      <p class="footer-disclaimer">
+        <b>Not professional advice.</b> Knowledge cards produced by this software
+        are AI-generated paraphrases of third-party content and reflect the
+        original speakers&rsquo; opinions, not those of AlphaOne LLC. Cards are not
+        legal, financial, medical, or any other professional advice. Always
+        verify against the cited source and consult qualified professionals.
+      </p>
+      <p class="footer-disclaimer">
+        <b>Third-party content.</b> Users running this pipeline against external
+        sources are solely responsible for compliance with all applicable terms
+        of service, copyright, and fair-use rules. YouTube&reg; is a trademark of
+        Google&nbsp;LLC; Claude&reg; is a trademark of Anthropic&nbsp;PBC; Grok and xAI
+        are trademarks of X.AI&nbsp;Corp. — used here for nominative reference only.
+      </p>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <span>Knowledge Atlas v1.0 &middot; built with care by AlphaOne LLC</span>
+    <span>SPDX-License-Identifier: Apache-2.0</span>
+  </div>
+</footer>
+
+</body>
+</html>

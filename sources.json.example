@@ -1,0 +1,17 @@
+{
+  "_comment": "Registry of indexed knowledge sources. Copy this to sources.json and add an entry per expert. add_source.py will populate it for you.",
+  "sources": [
+    {
+      "id": "example-expert",
+      "name": "Example Domain Expert",
+      "kind": "youtube_channel",
+      "url": "https://www.youtube.com/@example",
+      "domain": "one-line description of the domain (e.g. 'business strategy, sales, scaling')",
+      "expertise": "what this expert is known for; their unique angle or credential",
+      "language": "en",
+      "first_indexed": "2026-01-01",
+      "license": "transcripts derived from public YouTube auto-captions",
+      "trust_notes": "any caveats about the source's perspective, jurisdiction, or scope"
+    }
+  ]
+}

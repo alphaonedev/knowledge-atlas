@@ -1,0 +1,229 @@
+<!--
+  Knowledge Atlas
+  Copyright (c) 2026 AlphaOne LLC. All rights reserved.
+  Licensed under the Apache License, Version 2.0. See LICENSE for full terms.
+  SPDX-License-Identifier: Apache-2.0
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta name="copyright" content="© 2026 AlphaOne LLC. All rights reserved.">
+<meta name="license" content="Apache-2.0">
+<meta charset="utf-8">
+<title>Install — Knowledge Atlas</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="topnav">
+  <a class="brand" href="index.html">
+    <span class="brand-mark">A</span>
+    <span class="brand-title">Knowledge Atlas</span>
+  </a>
+  <div class="topnav-links">
+    <a href="index.html">Overview</a>
+    <a href="install.html" class="active">Install</a>
+    <a href="architecture.html">Architecture</a>
+    <a class="topnav-cta" href="https://github.com/alphaonedev/knowledge-atlas">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55 0-.27-.01-1.16-.02-2.11-3.2.7-3.87-1.36-3.87-1.36-.52-1.33-1.27-1.68-1.27-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.69 1.24 3.35.95.1-.74.4-1.24.73-1.53-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.18-3.08-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.62 1.58.23 2.75.11 3.04.74.8 1.18 1.82 1.18 3.08 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.06.78 2.13 0 1.54-.01 2.78-.01 3.16 0 .31.21.67.8.55C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z"/>
+      </svg>
+      GitHub
+    </a>
+  </div>
+</nav>
+
+<div class="with-toc">
+  <aside class="toc">
+    <div class="toc-title">On this page</div>
+    <a href="#prereqs">Prerequisites</a>
+    <a href="#clone">1. Clone & install</a>
+    <a href="#provider">2. Configure provider</a>
+    <a href="#sources">3. Sources registry</a>
+    <a href="#index">4. Index first expert</a>
+    <a href="#dashboard">5. Launch dashboard</a>
+    <a href="#desktop">6. Wire Claude Desktop</a>
+    <a href="#code">7. Wire Claude Code</a>
+    <a href="#smoketest">8. Smoke test</a>
+    <a href="#troubleshooting">Troubleshooting</a>
+  </aside>
+
+  <main style="padding:0;">
+    <h1 style="font-family:var(--font-display); font-size:42px; letter-spacing:-0.02em; margin:0 0 8px;">Install</h1>
+    <p style="font-size:18px; color:var(--text-soft);">
+      End-to-end setup for macOS, Linux, or Windows (WSL). Five minutes to first knowledge card.
+    </p>
+
+    <h2 id="prereqs">Prerequisites</h2>
+    <table>
+      <thead>
+        <tr><th>Tool</th><th>Why</th><th>Install</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>Python 3.10+</b></td><td>runtime</td><td><code>brew install python</code></td></tr>
+        <tr><td><b>yt-dlp</b></td><td>transcript download</td><td><code>pip install yt-dlp</code></td></tr>
+        <tr><td><b>An LLM API key</b></td><td>knowledge extraction</td><td>xAI <a href="https://console.x.ai">console.x.ai</a> or Anthropic <a href="https://console.anthropic.com">console.anthropic.com</a></td></tr>
+        <tr><td>Claude Desktop / Claude Code <span style="color:var(--muted);">(optional)</span></td><td>MCP integration</td><td><a href="https://claude.ai/download">claude.ai/download</a></td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="clone">1. Clone & install Python dependencies</h2>
+    <pre><code>git clone https://github.com/alphaonedev/knowledge-atlas.git
+cd knowledge-atlas
+python3 -m venv .venv             # optional but recommended
+source .venv/bin/activate         # Windows: .venv\Scripts\activate
+pip install -r requirements.txt</code></pre>
+
+    <h2 id="provider">2. Configure your LLM provider</h2>
+    <p>Knowledge Atlas can use either xAI Grok or Anthropic Claude. Pick one — or both; the system auto-detects whichever key is set.</p>
+    <p>Create a <code>.env</code> file in the project root:</p>
+    <pre><code># xAI (default)
+XAI_API_KEY=sk-...
+
+# or Anthropic
+ANTHROPIC_API_KEY=sk-ant-...</code></pre>
+    <p>The <code>.env</code> file is gitignored. The server also reads <code>~/.env</code> if you keep keys globally.</p>
+    <blockquote>
+      <b>Cost note.</b> Extraction runs ~3K input / ~1K output tokens per video. ~$0.02–$0.04 per video. A typical 60-video channel runs about $2.
+    </blockquote>
+
+    <h2 id="sources">3. Initialize the sources registry</h2>
+    <pre><code>cp sources.json.example sources.json</code></pre>
+    <p><code>sources.json</code> is gitignored — what you index stays private.</p>
+
+    <h2 id="index">4. Index your first expert</h2>
+    <pre><code>python3 add_source.py \
+  --id my-expert \
+  --name "Display Name" \
+  --url "https://www.youtube.com/@channel" \
+  --domain "what they teach" \
+  --expertise "their unique angle"</code></pre>
+    <p>This registers the source and fetches every video's transcript into <code>sources/&lt;id&gt;/transcripts/</code>.</p>
+
+    <p>Now extract knowledge cards:</p>
+    <pre><code>python3 extract_knowledge.py --source my-expert</code></pre>
+    <p>One JSON file per video appears in <code>data/knowledge/</code>, each containing 4–12 paraphrased cards.</p>
+
+    <p>Build the unified atlas:</p>
+    <pre><code>python3 build_knowledge.py</code></pre>
+
+    <h2 id="dashboard">5. Launch the dashboard</h2>
+    <pre><code>python3 app.py</code></pre>
+    <p>Open <a href="http://127.0.0.1:5179/">http://127.0.0.1:5179/</a>. ⌘K to search. Click <b>Index expert</b> in the header to add more sources without using the CLI.</p>
+
+    <h2 id="desktop">6. Wire in Claude Desktop</h2>
+    <p>Edit <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS):</p>
+    <pre><code>{
+  "mcpServers": {
+    "knowledge-atlas": {
+      "command": "/absolute/path/to/python3",
+      "args": ["/absolute/path/to/knowledge-atlas/mcp_server.py"]
+    }
+  }
+}</code></pre>
+    <blockquote>
+      Use the absolute path to <code>python3</code> — Claude Desktop launches subprocesses with a stripped PATH. Find it with <code>which python3</code>.
+    </blockquote>
+    <p>Fully quit Claude Desktop (⌘Q from the menu bar) and relaunch. <code>knowledge-atlas</code> will appear in <b>Local MCP servers</b> with 10 tools.</p>
+    <p>Try:</p>
+    <pre><code>List the sources in my knowledge atlas.
+Teach me about [topic] using the knowledge-atlas tools.
+What does my atlas say about [concept]? Cite the source videos.</code></pre>
+
+    <h2 id="code">7. Wire in Claude Code</h2>
+    <pre><code>claude mcp add knowledge-atlas --scope user -- \
+  /absolute/path/to/python3 /absolute/path/to/knowledge-atlas/mcp_server.py</code></pre>
+    <pre><code>claude mcp list
+# expect: knowledge-atlas: ... - ✓ Connected</code></pre>
+
+    <h2 id="smoketest">8. Smoke test</h2>
+    <pre><code># Flask alive?
+curl -s http://127.0.0.1:5179/api/source | python3 -m json.tool
+
+# MCP server starts cleanly under a stripped env (mimics Claude Desktop)?
+env -i HOME="$HOME" PATH="/usr/bin:/bin" python3 -c "
+import asyncio
+from mcp.client.stdio import stdio_client, StdioServerParameters
+from mcp.client.session import ClientSession
+
+async def main():
+    p = StdioServerParameters(command='python3', args=['mcp_server.py'])
+    async with stdio_client(p) as (r, w):
+        async with ClientSession(r, w) as s:
+            await s.initialize()
+            t = await s.list_tools()
+            print(f'OK · {len(t.tools)} tools')
+
+asyncio.run(main())
+"
+# expect: OK · 10 tools</code></pre>
+
+    <h2 id="troubleshooting">Troubleshooting</h2>
+    <table>
+      <thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td>Modal hangs at "Submitting…"</td><td>Flask isn't running</td><td><code>python3 app.py</code></td></tr>
+        <tr><td>MCP server not visible in Claude Desktop</td><td>Path / GUI re-serialization</td><td>Edit JSON directly, use absolute paths, fully quit (⌘Q) and relaunch</td></tr>
+        <tr><td><code>no API key found</code></td><td>Missing env var</td><td>Set <code>XAI_API_KEY</code> or <code>ANTHROPIC_API_KEY</code> in <code>.env</code></td></tr>
+        <tr><td>yt-dlp fails on a video</td><td>Age-gated / private</td><td>Skipped automatically; rest still indexes</td></tr>
+        <tr><td>Search returns nothing</td><td>Build wasn't run after extraction</td><td>Re-run <code>python3 build_knowledge.py</code></td></tr>
+      </tbody>
+    </table>
+
+  </main>
+</div>
+
+<footer>
+  <div class="footer-grid">
+    <div class="footer-col">
+      <div class="footer-brand">
+        <span class="brand-mark">A</span>
+        <span class="brand-title">Knowledge Atlas</span>
+      </div>
+      <p class="footer-meta">
+        © 2026 AlphaOne LLC. All rights reserved.<br>
+        Licensed under the Apache License, Version 2.0.
+      </p>
+    </div>
+    <div class="footer-col">
+      <h4>Project</h4>
+      <a href="index.html">Overview</a>
+      <a href="install.html">Install</a>
+      <a href="architecture.html">Architecture</a>
+      <a href="https://github.com/alphaonedev/knowledge-atlas">GitHub repository</a>
+      <a href="https://github.com/alphaonedev/knowledge-atlas/blob/main/LICENSE">License (Apache 2.0)</a>
+      <a href="https://github.com/alphaonedev/knowledge-atlas/blob/main/NOTICE">NOTICE</a>
+    </div>
+    <div class="footer-col">
+      <h4>Legal &amp; Disclaimers</h4>
+      <p class="footer-disclaimer">
+        <b>No warranty.</b> This software is provided &ldquo;AS IS&rdquo; without warranty of any
+        kind, express or implied. AlphaOne LLC and contributors are not liable
+        for any claim or damages arising from the use of this software or any
+        output it produces. See <a href="https://github.com/alphaonedev/knowledge-atlas/blob/main/LICENSE">LICENSE</a> for full terms.
+      </p>
+      <p class="footer-disclaimer">
+        <b>Not professional advice.</b> Knowledge cards produced by this software
+        are AI-generated paraphrases of third-party content and reflect the
+        original speakers&rsquo; opinions, not those of AlphaOne LLC. Cards are not
+        legal, financial, medical, or any other professional advice. Always
+        verify against the cited source and consult qualified professionals.
+      </p>
+      <p class="footer-disclaimer">
+        <b>Third-party content.</b> Users running this pipeline against external
+        sources are solely responsible for compliance with all applicable terms
+        of service, copyright, and fair-use rules. YouTube&reg; is a trademark of
+        Google&nbsp;LLC; Claude&reg; is a trademark of Anthropic&nbsp;PBC; Grok and xAI
+        are trademarks of X.AI&nbsp;Corp. — used here for nominative reference only.
+      </p>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <span>Knowledge Atlas v1.0 &middot; built with care by AlphaOne LLC</span>
+    <span>SPDX-License-Identifier: Apache-2.0</span>
+  </div>
+</footer>
+
+</body>
+</html>

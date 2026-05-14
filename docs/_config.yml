@@ -1,0 +1,8 @@
+# Jekyll config — GitHub Pages serves docs/ as a static site.
+# We bring our own HTML/CSS, so just disable processing of non-doc files.
+title: Knowledge Atlas
+description: Turn any domain expert's video corpus into a queryable, AI-consumable knowledge base.
+exclude:
+  - README.md
+  - Gemfile
+plugins: []
