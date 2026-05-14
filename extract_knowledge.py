@@ -1,16 +1,4 @@
 #!/usr/bin/env python3
-# Knowledge Atlas — LLM-based knowledge card extractor (xAI Grok / Anthropic Claude).
-# Copyright (c) 2026 AlphaOne LLC. All rights reserved.
-# Licensed under the Apache License, Version 2.0 (the "License").
-# You may not use this file except in compliance with the License.
-# A copy of the License is included with this distribution (LICENSE) and at:
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# SPDX-License-Identifier: Apache-2.0
-
 """
 extract_knowledge.py — extract knowledge cards from un-processed transcripts.
 
@@ -94,7 +82,30 @@ def paths_for(source_id):
     }
 
 
+def _is_valid_card_file(path):
+    """A previously written card file is valid only if it parses as JSON
+    and has the required shape. Killed-mid-write or otherwise corrupt files
+    are deleted so they get re-extracted on resume."""
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        return isinstance(doc, dict) and "video_id" in doc and "cards" in doc
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return False
+
+
+def _atomic_write_text(path, content):
+    """Atomic file write: write to a sibling tempfile, then rename.
+    Prevents kill-mid-write from leaving a half-written .json on disk."""
+    path = Path(path)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def list_pending(source_id):
+    """Return videos that still need extraction. Repairs the on-disk state
+    on the way: existing .json files that don't parse as valid card docs
+    are deleted so they'll be re-extracted."""
     paths = paths_for(source_id)
     meta_path = paths["meta"]
     if not meta_path.exists():
@@ -102,6 +113,8 @@ def list_pending(source_id):
     meta = json.loads(meta_path.read_text())
     txt_dir = paths["txt"]
     pending = []
+    valid_count = 0
+    repaired = []
     for m in meta:
         vid = m.get("id")
         if not vid:
@@ -111,13 +124,22 @@ def list_pending(source_id):
             continue
         out_path = OUT_DIR / f"{vid}.json"
         if out_path.exists():
-            continue
+            if _is_valid_card_file(out_path):
+                valid_count += 1
+                continue
+            else:
+                # Corrupt / half-written file — delete and re-extract
+                out_path.unlink(missing_ok=True)
+                repaired.append(vid)
         pending.append({
             "id": vid,
             "title": m.get("title", ""),
             "url": m.get("url") or f"https://www.youtube.com/watch?v={vid}",
             "transcript_path": tp,
         })
+    if valid_count or repaired:
+        print(f"      Resume scan: {valid_count} already extracted and valid"
+              + (f", {len(repaired)} corrupt (will re-extract: {', '.join(repaired)})" if repaired else ""))
     return pending
 
 
@@ -228,7 +250,9 @@ def extract_one(client, provider, model, schema, video):
     doc.setdefault("video_url", video["url"])
     doc.setdefault("cards", [])
     out_path = OUT_DIR / f"{video['id']}.json"
-    out_path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+    # Atomic write — if the process is killed mid-write, no half-baked JSON
+    # is left on disk that would confuse the aggregator or fail validation.
+    _atomic_write_text(out_path, json.dumps(doc, indent=2))
     return doc
 
 
@@ -271,7 +295,14 @@ def main():
 
     print(f"Source: {args.source}")
     print(f"Provider: {provider}  ·  Model: {model}")
-    print(f"Pending videos: {len(pending)}")
+    # Count of videos with transcripts on disk (the universe extraction could touch).
+    paths = paths_for(args.source)
+    total_with_transcripts = sum(1 for p in paths["txt"].glob("*.txt")
+                                 if not p.name.endswith(".timed.txt"))
+    print(f"Transcripts on disk: {total_with_transcripts}  ·  Pending extraction: {len(pending)}")
+    if total_with_transcripts and not pending:
+        print("Nothing to extract — every transcript already has a valid card file.")
+        return
     if not pending:
         print("Nothing to extract.")
         return

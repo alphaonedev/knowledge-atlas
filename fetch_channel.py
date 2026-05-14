@@ -1,16 +1,4 @@
 #!/usr/bin/env python3
-# Knowledge Atlas — YouTube channel transcript downloader (yt-dlp wrapper).
-# Copyright (c) 2026 AlphaOne LLC. All rights reserved.
-# Licensed under the Apache License, Version 2.0 (the "License").
-# You may not use this file except in compliance with the License.
-# A copy of the License is included with this distribution (LICENSE) and at:
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# SPDX-License-Identifier: Apache-2.0
-
 """
 Pulls every video's metadata + transcript for a YouTube channel.
 
@@ -33,6 +21,7 @@ from pathlib import Path
 
 import argparse
 import datetime
+import os
 
 ROOT = Path(__file__).resolve().parent
 PREF_LANGS = ["en", "en-US", "en-GB"]
@@ -61,6 +50,30 @@ def resolve_window(window=None, since=None, until=None):
             return None, None
         return (datetime.date.today() - delta).strftime("%Y%m%d"), None
     return None, None
+
+# A transcript with fewer than this many characters is considered partial/corrupt
+# (a real transcript is thousands of chars). On resume, such files are re-fetched.
+MIN_TRANSCRIPT_BYTES = 200
+
+
+def _atomic_write_text(path, content):
+    """Write text to `path` atomically: write to a sibling tempfile, then rename.
+    Prevents a kill mid-write from leaving a truncated file that passes the
+    existence check on resume."""
+    path = Path(path)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _is_valid_transcript(path):
+    """A previously downloaded transcript is 'valid' if it exists and is
+    larger than MIN_TRANSCRIPT_BYTES. Empty / tiny files are treated as
+    cancelled-mid-write and will be re-fetched on the next run."""
+    try:
+        return path.exists() and path.stat().st_size >= MIN_TRANSCRIPT_BYTES
+    except OSError:
+        return False
 
 
 def paths_for(source_id):
@@ -242,6 +255,22 @@ def main():
     videos = list_videos(args.url)
     print(f"      Found {len(videos)} videos.")
 
+    # Resume scan: how many of these are already on disk and valid?
+    valid_ids = {p.stem for p in txt_dir.glob("*.txt")
+                 if not p.name.endswith(".timed.txt") and _is_valid_transcript(p)}
+    invalid_ids = {p.stem for p in txt_dir.glob("*.txt")
+                   if not p.name.endswith(".timed.txt") and not _is_valid_transcript(p)}
+    listed_ids = {v["id"] for v in videos if v.get("id")}
+    if valid_ids or invalid_ids:
+        already = len(valid_ids & listed_ids)
+        corrupt = len(invalid_ids & listed_ids)
+        print(f"      Resume detected: {already} already downloaded and valid"
+              + (f", {corrupt} partial/corrupt (will re-fetch)" if corrupt else "")
+              + f", {len(listed_ids - valid_ids)} pending.")
+        for vid in invalid_ids & listed_ids:
+            (txt_dir / f"{vid}.txt").unlink(missing_ok=True)
+            (txt_dir / f"{vid}.timed.txt").unlink(missing_ok=True)
+
     existing = {}
     if meta_path.exists():
         try:
@@ -277,8 +306,9 @@ def main():
                 records.append(rec)
                 continue
             plain, timed = srt_to_text(srt_path)
-            txt_path.write_text(plain, encoding="utf-8")
-            timed_path.write_text(timed, encoding="utf-8")
+            # Atomic writes — if killed mid-write, no partial file is left behind
+            _atomic_write_text(txt_path, plain)
+            _atomic_write_text(timed_path, timed)
         else:
             plain = txt_path.read_text(encoding="utf-8")
 
@@ -296,7 +326,7 @@ def main():
         records.append(rec)
 
     print(f"[3/3] Writing metadata to {meta_path}")
-    meta_path.write_text(json.dumps(records, indent=2, default=str), encoding="utf-8")
+    _atomic_write_text(meta_path, json.dumps(records, indent=2, default=str))
 
     have = sum(1 for r in records if r.get("has_transcript"))
     total_words = sum(r.get("word_count", 0) for r in records)
