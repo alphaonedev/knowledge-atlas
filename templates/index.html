@@ -702,11 +702,17 @@
           margin-top: 8px;
         }
         .kind-bar-seg {
-          display:flex; align-items:center; justify-content:center;
+          display:flex; align-items:center; justify-content:center; gap:5px;
           font: 600 11px var(--font-sans); color: white;
-          padding: 0 6px; transition: width 0.4s;
+          padding: 0 8px; transition: width 0.4s;
           text-shadow: 0 1px 1px rgba(0,0,0,0.2);
-          white-space: nowrap; overflow: hidden;
+          white-space: nowrap; overflow: hidden; min-width: 0;
+        }
+        .kind-bar-seg .kind-bar-label {
+          overflow: hidden; text-overflow: ellipsis; min-width: 0;
+        }
+        .kind-bar-seg .kind-bar-count {
+          opacity: 0.85; flex: 0 0 auto;
         }
         .kind-bar-seg.kind-principle    { background: var(--principle); }
         .kind-bar-seg.kind-tactic       { background: var(--tactic); }
@@ -1462,6 +1468,18 @@ const KIND_COLOR = {
   quote:        "#9d1f6c",  unknown:   "#9aa2af",
 };
 
+// Shorter labels for narrow bar segments where the full kind name would clip.
+// The legend and tooltip still show the full "mental model" — this only
+// shrinks the inline text inside the stacked bar so it doesn't get truncated
+// awkwardly (e.g. centered overflow used to render "mental model" as
+// "ental model"). Keep the map in sync with kind colors above.
+const KIND_BAR_SHORT_LABEL = {
+  mental_model: "model",
+};
+function kindBarLabel(k) {
+  return KIND_BAR_SHORT_LABEL[k] || k.replace("_", " ");
+}
+
 function renderKindBar(kinds_total) {
   const total = Object.values(kinds_total || {}).reduce((a, b) => a + b, 0);
   if (!total) return "";
@@ -1470,10 +1488,17 @@ function renderKindBar(kinds_total) {
     .map(k => {
       const n = kinds_total[k];
       const pct = (n / total * 100);
+      const label = kindBarLabel(k);
+      const fullName = k.replace("_", " ");
+      // For narrow segments (<5% of bar) only the count fits cleanly.
+      // For everything else, render label + count as separate spans so the
+      // label can ellipsis-truncate without clobbering the count.
+      const inner = pct >= 5
+        ? `<span class="kind-bar-label">${label}</span>` +
+          `<span class="kind-bar-count">${n}</span>`
+        : `<span class="kind-bar-count">${n}</span>`;
       return `<div class="kind-bar-seg kind-${k}" style="width:${pct.toFixed(1)}%"
-                title="${k}: ${n} (${pct.toFixed(0)}%)">
-                ${pct >= 5 ? `${k.replace('_',' ')}<span style="opacity:.85;margin-left:5px">${n}</span>` : n}
-              </div>`;
+                title="${fullName}: ${n} (${pct.toFixed(0)}%)">${inner}</div>`;
     }).join("");
   const legend = KIND_DISPLAY_ORDER
     .filter(k => kinds_total[k])
