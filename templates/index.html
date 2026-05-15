@@ -808,6 +808,7 @@ let KINDS = [], CATEGORIES = [], VIDEOS = [];
 //
 //   #all                       → All knowledge (also the empty-hash default)
 //   #videos / #sources / #coverage
+//   #source/<source_id>        → scoped source-detail page (only that source's data)
 //   #kind/principle            → kind filter
 //   #category/finance          → category filter
 //   #search/<encoded-query>    → search results
@@ -854,6 +855,7 @@ function syncSidebarHighlight() {
   if (view.type === "all")       sel = '.nav-item[data-view="all"]';
   else if (view.type === "videos")   sel = '.nav-item[data-view="videos"]';
   else if (view.type === "sources")  sel = '.nav-item[data-view="sources"]';
+  else if (view.type === "source")   sel = '.nav-item[data-view="sources"]';
   else if (view.type === "coverage") sel = '.nav-item[data-view="coverage"]';
   else if (view.type === "kind")     sel = `.nav-item[data-kind="${view.value}"]`;
   else if (view.type === "category") {
@@ -1005,7 +1007,9 @@ async function renderSources() {
       <div class="meta">${sources.length} expert${sources.length === 1 ? "" : "s"} · each contributes paraphrased knowledge cards to the same atlas</div>
     </div>
     ` + sources.map(s => `
-      <article class="card" data-source-id="${escapeHtml(s.id)}">
+      <article class="card source-card" data-source-id="${escapeHtml(s.id)}"
+               style="cursor:pointer;"
+               title="Open ${escapeHtml(s.name || s.id)} — view only this source's videos and cards">
         <div class="card-meta">
           <span class="category-tag">${escapeHtml(s.kind || "source")}</span>
           <span class="category-tag" style="font-family:var(--font-mono);">id: ${escapeHtml(s.id)}</span>
@@ -1021,7 +1025,7 @@ async function renderSources() {
             Remove
           </button>
         </div>
-        <h3 class="card-title">${escapeHtml(s.name || s.id)}</h3>
+        <h3 class="card-title" style="text-decoration:underline; text-decoration-color:var(--border); text-underline-offset:3px;">${escapeHtml(s.name || s.id)}</h3>
         ${s.expertise ? `<div class="card-content">${escapeHtml(s.expertise)}</div>` : ""}
         ${s.domain ? `<div class="card-reasoning"><b style="color:var(--text);font-style:normal;">${escapeHtml(s.domain)}</b></div>` : ""}
         <div class="card-source">
@@ -1092,6 +1096,143 @@ async function renderSources() {
       await openModalForUpdate(source);
     });
   });
+
+  // Clicking the source card itself navigates into the source-detail view —
+  // a scoped page showing only that source's videos, cards, kind breakdown
+  // and topics. Refresh/Remove buttons stop propagation above so their
+  // actions don't trigger navigation.
+  $$('.source-card').forEach(card => {
+    card.addEventListener("click", (e) => {
+      // Ignore clicks on the external URL link in the card body.
+      if (e.target.closest("a")) return;
+      const sid = card.dataset.sourceId;
+      if (sid) setView({ type: "source", value: sid });
+    });
+  });
+}
+
+// ---- Source-detail view ----------------------------------------------------
+// Renders all data for ONE source: a header (name, domain, expertise, stats,
+// refresh button), the kind-distribution bar scoped to this source, top
+// categories, and the cards themselves grouped by kind. Navigated to by
+// clicking a source card on the "By source" page or via #source/<id>.
+async function renderSource(sid) {
+  const [s, cards, videos] = await Promise.all([
+    J("/ai/source/" + encodeURIComponent(sid)),
+    J("/api/cards?source_id=" + encodeURIComponent(sid) + "&limit=2000"),
+    J("/api/videos?source_id=" + encodeURIComponent(sid)),
+  ]);
+
+  // Build a kind-totals map for renderKindBar
+  const kindsTotal = {};
+  (s.kinds || []).forEach(k => { kindsTotal[k.kind] = k.cards; });
+
+  // Latest upload (best-effort; show what we already have indexed)
+  let latestLine = "";
+  try {
+    const lu = await J("/api/source/" + encodeURIComponent(sid) + "/latest_upload");
+    if (lu && lu.date) {
+      const d = lu.date;
+      latestLine = ` · latest upload ${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`;
+    }
+  } catch (e) { /* best effort */ }
+
+  const topCats = (s.top_categories || []).slice(0, 12);
+
+  $("#main").innerHTML = `
+    <div class="section-head">
+      <div class="kicker">
+        <a href="#sources" style="color:inherit; text-decoration:none;">← By source</a>
+      </div>
+      <h2>${escapeHtml(s.name || s.id)}</h2>
+      ${s.expertise ? `<p class="muted" style="margin:6px 0 0; font-size:14px;">${escapeHtml(s.expertise)}</p>` : ""}
+      ${s.domain ? `<p class="muted" style="margin:4px 0 0; font-size:13px;"><b style="color:var(--text);font-weight:600;">Domain:</b> ${escapeHtml(s.domain)}</p>` : ""}
+      <div class="meta" style="margin-top:10px;">
+        <span style="font-family:var(--font-mono);">id: ${escapeHtml(s.id)}</span> ·
+        ${s.videos} videos · ${s.cards} cards · ${s.categories} topics${latestLine}
+        ${s.url ? ` · <a href="${escapeHtml(s.url)}" target="_blank">channel ↗</a>` : ""}
+      </div>
+      <div style="display:flex; gap:8px; margin-top:12px;">
+        <button class="source-detail-refresh-btn" data-source-id="${escapeHtml(s.id)}"
+                style="background:var(--accent); color:white; border:0; padding:7px 14px; border-radius:6px; cursor:pointer; font:600 12px inherit;">
+          ↻ Refresh — pull net-new videos
+        </button>
+      </div>
+      ${Object.keys(kindsTotal).length ? renderKindBar(kindsTotal) : ""}
+      ${topCats.length ? `
+        <div class="kind-legend" style="margin-top:14px;">
+          <span class="muted" style="margin-right:4px;">Topics in this source:</span>
+          ${topCats.map(c => `
+            <a href="#category/${encodeURIComponent(c.category)}"
+               class="category-tag"
+               style="text-decoration:none; cursor:pointer;"
+               title="Open '${escapeHtml(c.category)}' across all sources">
+              ${escapeHtml(c.category)} <span style="opacity:.7;">${c.cards}</span>
+            </a>
+          `).join("")}
+        </div>
+      ` : ""}
+    </div>
+
+    ${videos.length ? `
+      <details style="margin: 0 0 18px; padding: 12px 14px; background:var(--panel); border:1px solid var(--border); border-radius:8px;">
+        <summary style="cursor:pointer; font:600 13px inherit;">
+          ${videos.length} video${videos.length === 1 ? "" : "s"} indexed
+          <span class="muted" style="font-weight:400; font-size:12px; margin-left:6px;">click to expand</span>
+        </summary>
+        <div style="margin-top:10px; display:flex; flex-direction:column; gap:6px;">
+          ${videos.map(v => `
+            <div style="display:flex; gap:10px; align-items:baseline; padding:6px 0; border-bottom:1px dashed var(--border);">
+              <span class="muted" style="font-size:11px; font-family:var(--font-mono); min-width:30px;">${v.card_count}c</span>
+              <a href="${escapeHtml(v.url)}" target="_blank" style="flex:1; text-decoration:none; color:var(--text);">
+                ${escapeHtml(v.title || v.id)}
+              </a>
+            </div>
+          `).join("")}
+        </div>
+      </details>
+    ` : ""}
+  `;
+
+  // Render the scoped cards into the main pane.
+  if (cards.length) {
+    const wrap = document.createElement("div");
+    $("#main").appendChild(wrap);
+    wrap.outerHTML = (function() {
+      const div = document.createElement("div");
+      div.innerHTML = "<!-- scoped cards -->";
+      return div.outerHTML;
+    })();
+    // Use the existing card grouping helper by appending into #main
+    const groups = {};
+    cards.forEach(c => {
+      const k = c.kind || "unknown";
+      (groups[k] = groups[k] || []).push(c);
+    });
+    const order = ["principle", "mental_model", "framework", "tactic", "phrase", "warning", "quote", "unknown"];
+    const cardsHTML = order.filter(k => groups[k]).map(k => `
+      <div class="kind-group-head">
+        <span class="dot kind-${k}"></span>
+        <span class="label">${k.replace("_"," ")}</span>
+        <span class="count">${groups[k].length}</span>
+        <span class="rule"></span>
+      </div>
+    ` + groups[k].map(cardHTML).join("")).join("");
+    $("#main").insertAdjacentHTML("beforeend", cardsHTML);
+  } else {
+    $("#main").insertAdjacentHTML("beforeend",
+      `<div class="muted" style="padding:24px;">No cards have been extracted for this source yet.</div>`);
+  }
+
+  // Wire the in-page refresh button.
+  const refreshBtn = $(".source-detail-refresh-btn");
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", async () => {
+      const allSources = await J("/ai/sources");
+      const source = allSources.find(x => x.id === sid);
+      if (source) await openModalForUpdate(source);
+    });
+  }
 }
 
 async function renderCoverage() {
@@ -1177,6 +1318,7 @@ async function render() {
   if (view.type === "search")   return renderSearch(view.value);
   if (view.type === "videos")   return renderVideos();
   if (view.type === "sources")  return renderSources();
+  if (view.type === "source")   return renderSource(view.value);
   if (view.type === "coverage") return renderCoverage();
   if (view.type === "kind")     return renderKind(view.value);
   if (view.type === "category") return renderCategory(view.value);
