@@ -1856,7 +1856,16 @@ function renderPhaseSummary(s) {
           ? `✓ ${parts.join(", ")}`
           : "✓ no videos in window";
       } else if (meta.id === "extract") {
-        countText = `${p.summary.cards || 0} cards · ${p.summary.videos || 0} videos`;
+        // When nothing was pending (every transcript already had card JSON),
+        // extract_knowledge.py emits summary.reason="all-cached" so we can
+        // render a clean message instead of an alarming "0 cards · 0 videos".
+        if (p.summary.reason === "all-cached") {
+          countText = p.summary.skipped
+            ? `✓ all ${p.summary.skipped} already extracted`
+            : "✓ nothing to extract";
+        } else {
+          countText = `${p.summary.cards || 0} cards · ${p.summary.videos || 0} videos`;
+        }
       } else if (meta.id === "aggregate") {
         countText = `${p.summary.cards || 0} cards · ${p.summary.videos || 0} videos · ${p.summary.categories || 0} topics`;
       } else if (meta.id === "list") {

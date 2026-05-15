@@ -330,11 +330,22 @@ def main():
     total_with_transcripts = sum(1 for p in paths["txt"].glob("*.txt")
                                  if not p.name.endswith(".timed.txt"))
     print(f"Transcripts on disk: {total_with_transcripts}  ·  Pending extraction: {len(pending)}")
-    if total_with_transcripts and not pending:
-        print("Nothing to extract — every transcript already has a valid card file.")
-        return
     if not pending:
-        print("Nothing to extract.")
+        # Even when there's nothing to do, emit a start/done pair so the
+        # dashboard's "Extract knowledge" phase row resolves to ✓ instead of
+        # being stuck at "pending". Without this the user sees a finished
+        # pipeline with an apparently-incomplete extraction phase — happens
+        # on every refresh where all transcripts already have card JSON.
+        msg = ("Nothing to extract — every transcript already has a valid card file."
+               if total_with_transcripts else "Nothing to extract.")
+        print(msg)
+        _emit_progress("phase_start", phase="extract", total=0,
+                       provider=provider, model=model, message=msg)
+        _emit_progress("phase_done", phase="extract",
+                       elapsed_sec=0,
+                       summary={"videos": 0, "cards": 0,
+                                "skipped": total_with_transcripts,
+                                "reason": "all-cached"})
         return
 
     total_cards = 0
