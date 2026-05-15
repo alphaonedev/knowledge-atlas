@@ -794,7 +794,71 @@ function escapeHtml(s) {
 
 let SOURCE = null;
 let KINDS = [], CATEGORIES = [], VIDEOS = [];
-let view = { type: "all" };
+
+// ----- URL hash routing -----------------------------------------------------
+// The atlas is a single-page app but until now its current view lived only in
+// JS state, so a browser refresh dumped you back to "All knowledge". Routing
+// the view through location.hash fixes that AND makes deep-links shareable:
+//
+//   #all                       → All knowledge (also the empty-hash default)
+//   #videos / #sources / #coverage
+//   #kind/principle            → kind filter
+//   #category/finance          → category filter
+//   #search/<encoded-query>    → search results
+//   #video/<video_id>          → opens the video detail drawer on top of #all
+//
+function viewToHash(v) {
+  if (!v || v.type === "all") return "";
+  if (["videos", "sources", "coverage"].includes(v.type)) return v.type;
+  if (v.value != null) return `${v.type}/${encodeURIComponent(v.value)}`;
+  return v.type;
+}
+
+function hashToView(hash) {
+  hash = (hash || "").replace(/^#/, "");
+  if (!hash) return { type: "all" };
+  const slash = hash.indexOf("/");
+  if (slash === -1) return { type: hash };
+  return {
+    type: hash.slice(0, slash),
+    value: decodeURIComponent(hash.slice(slash + 1)),
+  };
+}
+
+function setView(newView, opts) {
+  opts = opts || {};
+  view = newView || { type: "all" };
+  const hash = viewToHash(view);
+  const target = hash ? "#" + hash : location.pathname + location.search;
+  // Only push history if we're not echoing a hashchange event back at ourselves
+  if (!opts.fromHashChange) {
+    if (location.hash !== ("#" + hash)) {
+      try { history.pushState(null, "", target); } catch (e) { location.hash = hash; }
+    }
+  }
+  syncSidebarHighlight();
+  return render();
+}
+
+function syncSidebarHighlight() {
+  // Derive the active sidebar item from the current view.
+  setActive(null);
+  if (view.type === "search") return;
+  let sel = null;
+  if (view.type === "all")       sel = '.nav-item[data-view="all"]';
+  else if (view.type === "videos")   sel = '.nav-item[data-view="videos"]';
+  else if (view.type === "sources")  sel = '.nav-item[data-view="sources"]';
+  else if (view.type === "coverage") sel = '.nav-item[data-view="coverage"]';
+  else if (view.type === "kind")     sel = `.nav-item[data-kind="${view.value}"]`;
+  else if (view.type === "category") {
+    const safe = (view.value || "").replace(/"/g, '\\"');
+    sel = `.nav-item[data-category="${safe}"]`;
+  }
+  if (sel) setActive($(sel));
+}
+
+// Initial view comes from the URL, not the hardcoded "all" default
+let view = hashToView(location.hash);
 
 const KIND_ORDER = ["principle", "mental_model", "framework", "tactic", "phrase", "warning", "quote"];
 
@@ -826,16 +890,13 @@ function renderSidebar() {
   `).join("");
 
   $$(".nav-item[data-kind]").forEach(el => el.addEventListener("click", () => {
-    view = { type: "kind", value: el.dataset.kind };
-    setActive(el); render();
+    setView({ type: "kind", value: el.dataset.kind });
   }));
   $$(".nav-item[data-category]").forEach(el => el.addEventListener("click", () => {
-    view = { type: "category", value: el.dataset.category };
-    setActive(el); render();
+    setView({ type: "category", value: el.dataset.category });
   }));
   $$(".nav-item[data-view]").forEach(el => el.addEventListener("click", () => {
-    view = { type: el.dataset.view };
-    setActive(el); render();
+    setView({ type: el.dataset.view });
   }));
 }
 
@@ -1041,9 +1102,7 @@ async function renderCoverage() {
   `;
   $$("#main .cat-link").forEach(a => a.addEventListener("click", e => {
     e.preventDefault();
-    view = { type: "category", value: a.dataset.cat };
-    setActive($('.nav-item[data-category="' + a.dataset.cat.replace(/"/g,'\\"') + '"]'));
-    render();
+    setView({ type: "category", value: a.dataset.cat });
   }));
 }
 
@@ -1106,16 +1165,17 @@ searchEl.addEventListener("input", () => {
   clearTimeout(searchTimer);
   const q = searchEl.value.trim();
   if (!q) {
-    view = { type: "all" };
-    setActive($('.nav-item[data-view="all"]'));
-    render();
+    setView({ type: "all" });
     return;
   }
   searchTimer = setTimeout(() => {
-    view = { type: "search", value: q };
-    setActive(null);
-    render();
+    setView({ type: "search", value: q });
   }, 220);
+});
+
+// Browser back/forward (and any code that sets location.hash directly)
+window.addEventListener("hashchange", () => {
+  setView(hashToView(location.hash), { fromHashChange: true });
 });
 
 // Cmd+K / Ctrl+K to focus search
@@ -1661,7 +1721,13 @@ async function pollIngest(job_id) {
 
   $("#hero-sub").innerHTML = `${SOURCE.cards} cards · ${SOURCE.videos} videos · ${SOURCE.categories} topics`;
   renderSidebar();
-  setActive($('.nav-item[data-view="all"]'));
+
+  // Restore view from URL hash (refresh / deep-link preservation)
+  view = hashToView(location.hash);
+  if (view.type === "search" && view.value) {
+    searchEl.value = view.value;  // re-populate the search input
+  }
+  syncSidebarHighlight();
   await render();
 })();
 </script>

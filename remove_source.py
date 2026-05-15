@@ -55,6 +55,14 @@ def plan_removal(source_id):
         "card_files": [],
         "transcript_count": 0,
         "raw_srt_count": 0,
+        # Legacy layout (single-source era — files at project root)
+        "legacy_meta":        str(ROOT / "channel_metadata.json"),
+        "legacy_transcripts": str(ROOT / "transcripts"),
+        "legacy_raw_srt":     str(ROOT / "raw_srt"),
+        "legacy_meta_present":        (ROOT / "channel_metadata.json").exists(),
+        "legacy_transcripts_present": (ROOT / "transcripts").exists(),
+        "legacy_raw_srt_present":     (ROOT / "raw_srt").exists(),
+        "legacy_video_ids":   [],
     }
 
     # Check registry
@@ -74,10 +82,36 @@ def plan_removal(source_id):
         except Exception:
             pass
 
+    # Legacy single-source layout — if this source's data lives at the project
+    # root (pre-refactor), pick up those video IDs too.
+    legacy_meta = ROOT / "channel_metadata.json"
+    if legacy_meta.exists():
+        try:
+            meta = json.loads(legacy_meta.read_text())
+            # Heuristic: legacy meta belongs to this source if the source's
+            # channel URL appears in the legacy data, OR if the source has no
+            # per-source dir (so its data must be in the legacy location), OR
+            # if you explicitly pass the special id "_legacy".
+            legacy_belongs = False
+            if not (SOURCES_DIR / source_id).exists():
+                legacy_belongs = True
+            elif SOURCES_PATH.exists():
+                doc = json.loads(SOURCES_PATH.read_text())
+                src = next((s for s in doc.get("sources", []) if s["id"] == source_id), None)
+                if src and src.get("channel"):
+                    # If the legacy meta's channel matches
+                    legacy_channels = {(m.get("channel") or "").strip() for m in meta if m.get("channel")}
+                    if src["channel"] in legacy_channels:
+                        legacy_belongs = True
+            if legacy_belongs or source_id == "_legacy":
+                plan["legacy_video_ids"] = [m["id"] for m in meta if m.get("id")]
+        except Exception:
+            pass
+
     # Find the corresponding card files in data/knowledge/
-    for vid in plan["video_ids"]:
+    for vid in plan["video_ids"] + plan["legacy_video_ids"]:
         card = KNOWLEDGE_DIR / f"{vid}.json"
-        if card.exists():
+        if card.exists() and str(card) not in plan["card_files"]:
             plan["card_files"].append(str(card))
 
     # Count files that will go with the directory removal
@@ -88,6 +122,21 @@ def plan_removal(source_id):
     raw = SOURCES_DIR / source_id / "raw_srt"
     if raw.exists():
         plan["raw_srt_count"] = len(list(raw.glob("*.srt")))
+
+    # Legacy file counts
+    legacy_tx = ROOT / "transcripts"
+    if legacy_tx.exists() and plan["legacy_video_ids"]:
+        plan["legacy_transcript_count"] = len([
+            p for p in legacy_tx.glob("*.txt")
+            if not p.name.endswith(".timed.txt")
+        ])
+    else:
+        plan["legacy_transcript_count"] = 0
+    legacy_rs = ROOT / "raw_srt"
+    if legacy_rs.exists() and plan["legacy_video_ids"]:
+        plan["legacy_raw_srt_count"] = len(list(legacy_rs.glob("*.srt")))
+    else:
+        plan["legacy_raw_srt_count"] = 0
 
     return plan
 
@@ -151,6 +200,37 @@ def remove(source_id, dry_run=False, rebuild=True, log=print):
             log(f"  ✓ deleted source tree {src_dir}")
         except OSError as e:
             log(f"  ✗ could not remove {src_dir}: {e}")
+
+    # 3b. Legacy single-source layout cleanup (pre-multi-source refactor).
+    # If this source's data lived at the project root (transcripts/, raw_srt/,
+    # channel_metadata.json), clean those up too. This is what
+    # `remove_source.py` originally missed for the very first source ever
+    # indexed — it left those files orphaned on disk.
+    if plan.get("legacy_video_ids"):
+        legacy_tx = ROOT / "transcripts"
+        legacy_rs = ROOT / "raw_srt"
+        legacy_meta = ROOT / "channel_metadata.json"
+        if legacy_meta.exists():
+            try:
+                legacy_meta.unlink()
+                actions.append("deleted legacy channel_metadata.json (project root)")
+                log("  ✓ deleted legacy channel_metadata.json")
+            except OSError as e:
+                log(f"  ✗ could not remove legacy meta: {e}")
+        if legacy_tx.exists():
+            try:
+                shutil.rmtree(legacy_tx)
+                actions.append("deleted legacy transcripts/ (project root)")
+                log("  ✓ deleted legacy transcripts/")
+            except OSError as e:
+                log(f"  ✗ could not remove legacy transcripts: {e}")
+        if legacy_rs.exists():
+            try:
+                shutil.rmtree(legacy_rs)
+                actions.append("deleted legacy raw_srt/ (project root)")
+                log("  ✓ deleted legacy raw_srt/")
+            except OSError as e:
+                log(f"  ✗ could not remove legacy raw_srt: {e}")
 
     # 4. Rebuild the unified atlas
     if rebuild:
