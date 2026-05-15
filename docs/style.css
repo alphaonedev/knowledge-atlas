@@ -290,14 +290,20 @@ tr:hover td { background: var(--bg-tint); }
   margin-top: 16px;
 }
 
-/* TOC sidebar (for long docs pages) */
+/* TOC sidebar (for long docs pages).
+   Markup order in install.html / architecture.html is: <aside class="toc"> first,
+   then <main>. So the FIRST grid column is the narrow TOC (220px) and the SECOND
+   is the wide content column (1fr). */
 .with-toc {
   display: grid;
-  grid-template-columns: 1fr 220px;
+  grid-template-columns: 220px minmax(0, 1fr);
   gap: 56px;
   max-width: 1140px;
   margin: 0 auto;
   padding: 56px 28px 96px;
+}
+.with-toc > main {
+  min-width: 0;   /* prevents long <pre> blocks from blowing out the grid */
 }
 .toc {
   position: sticky; top: 80px;
