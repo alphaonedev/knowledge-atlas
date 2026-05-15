@@ -109,8 +109,16 @@ ANTHROPIC_API_KEY=sk-ant-...</code></pre>
     <pre><code>python3 build_knowledge.py</code></pre>
 
     <h2 id="dashboard">5. Launch the dashboard</h2>
-    <pre><code>python3 app.py</code></pre>
-    <p>Open <a href="http://127.0.0.1:5179/">http://127.0.0.1:5179/</a>. ⌘K to search. Click <b>Index expert</b> in the header to add more sources without using the CLI.</p>
+    <p>Knowledge Atlas ships with a lifecycle CLI (<code>atlas.py</code>) that manages the Flask service as a background daemon. Use it instead of running <code>app.py</code> directly:</p>
+    <pre><code>python3 atlas.py start       # launch in background, writes PID + log
+python3 atlas.py status      # PID, uptime, port, atlas content stats
+python3 atlas.py logs        # tail data/atlas.log (-f to follow)
+python3 atlas.py restart     # stop then start
+python3 atlas.py stop        # SIGTERM → grace period → SIGKILL fallback</code></pre>
+    <p>After <code>start</code>, open <a href="http://127.0.0.1:5179/">http://127.0.0.1:5179/</a>. ⌘K to search. Click <b>Index expert</b> in the header to add more sources without using the CLI.</p>
+    <blockquote>
+      <b>Manual mode.</b> You can still run <code>python3 app.py</code> directly in the foreground for development; the CLI just wraps that with PID management, log capture, and clean shutdown.
+    </blockquote>
 
     <h2 id="desktop">6. Wire in Claude Desktop</h2>
     <p>Edit <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS):</p>

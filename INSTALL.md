@@ -86,13 +86,21 @@ This aggregates every JSON into a single SQLite store at `data/knowledge.db` plu
 
 ## 5. Launch the dashboard
 
+Knowledge Atlas ships with a lifecycle CLI (`atlas.py`) that manages the Flask service as a background daemon. Use it instead of running `app.py` directly:
+
 ```bash
-python3 app.py
+python3 atlas.py start       # launch in background, writes PID + log
+python3 atlas.py status      # PID, uptime, port, atlas content stats
+python3 atlas.py logs        # tail data/atlas.log (-f to follow)
+python3 atlas.py restart     # stop then start (port settles between)
+python3 atlas.py stop        # SIGTERM → grace period → SIGKILL fallback
 ```
 
-Open **http://127.0.0.1:5179/** in your browser. You'll see the indexed expert, the full card library, browse-by-kind / browse-by-topic navigation, and ⌘K full-text search.
+After `start`, open **http://127.0.0.1:5179/**. You'll see the indexed expert, the full card library, browse-by-kind / browse-by-topic navigation, and ⌘K full-text search.
 
-You can also index more experts directly from the web UI — click **Index expert** in the header, paste a channel URL, watch the pipeline run live.
+You can index more experts directly from the web UI — click **Index expert** in the header, paste a channel URL, watch the pipeline run live.
+
+> **Manual mode (for development).** You can still run `python3 app.py` directly in the foreground if you prefer to see Flask's output inline — useful when iterating on the code. The CLI just wraps that with PID management + log capture + clean shutdown.
 
 ## 6. Wire in Claude Desktop (recommended for chat-style use)
 

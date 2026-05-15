@@ -74,9 +74,15 @@ python3 extract_knowledge.py --source my-expert
 # Build the unified atlas
 python3 build_knowledge.py
 
-# Launch the dashboard
-python3 app.py
+# Launch the dashboard (managed in the background by the atlas CLI)
+python3 atlas.py start
 # open http://127.0.0.1:5179/
+
+# Other lifecycle commands
+python3 atlas.py status      # PID, uptime, port, atlas content stats
+python3 atlas.py logs        # tail the server log (-f to follow)
+python3 atlas.py restart     # stop and start
+python3 atlas.py stop        # clean shutdown
 ```
 
 See [INSTALL.md](INSTALL.md) for full setup, [ARCHITECTURE.md](ARCHITECTURE.md) for the system design, and [HOW_TO_CONNECT.md](HOW_TO_CONNECT.md) to wire Claude Desktop / Claude Code into the atlas via MCP.

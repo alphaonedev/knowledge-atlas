@@ -15,6 +15,11 @@ data/knowledge.db
 data/lexicon.db
 data/export/
 
+# --- Service-lifecycle state (atlas start/stop/status) ---
+data/atlas.pid
+data/atlas.log
+data/atlas.log.*
+
 # --- Static assets generated at build time ---
 static/charts/
 
