@@ -1,16 +1,4 @@
 #!/usr/bin/env python3
-# Knowledge Atlas — Aggregator — rebuilds the SQLite atlas from per-video card JSON files.
-# Copyright (c) 2026 AlphaOne LLC. All rights reserved.
-# Licensed under the Apache License, Version 2.0 (the "License").
-# You may not use this file except in compliance with the License.
-# A copy of the License is included with this distribution (LICENSE) and at:
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# SPDX-License-Identifier: Apache-2.0
-
 """
 build_knowledge.py — aggregate per-video knowledge-card JSON into SQLite.
 
@@ -39,7 +27,19 @@ EXPORT.mkdir(parents=True, exist_ok=True)
 VALID_KINDS = {"principle", "tactic", "warning", "framework", "mental_model", "phrase", "quote"}
 
 
+def _emit_progress(event, **fields):
+    """Emit a single-line structured progress event for app.py to parse.
+    Format: @@PROGRESS@@ {"event":"...","phase":"...",...}"""
+    payload = {"event": event, **fields}
+    print(f"@@PROGRESS@@ {json.dumps(payload, default=str)}", flush=True)
+
+
 def main():
+    import time as _time
+    _started = _time.time()
+    _emit_progress("phase_start", phase="aggregate",
+                   message="Aggregating into SQLite + JSON + FTS")
+
     with open(SOURCES_PATH) as f:
         sources = json.load(f)["sources"]
 
@@ -220,6 +220,13 @@ def main():
     for k, n in kind_counts.most_common():
         print(f"  {k:18s}  {n}")
     print(f"Wrote {DB_PATH} and {EXPORT/'knowledge_atlas.json'}")
+    _emit_progress("phase_done", phase="aggregate",
+                   elapsed_sec=round(_time.time() - _started, 1),
+                   summary={
+                       "videos": len(summaries),
+                       "cards": total_cards,
+                       "categories": len(category_counts),
+                   })
 
 
 if __name__ == "__main__":

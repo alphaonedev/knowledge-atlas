@@ -45,6 +45,7 @@
     <a href="#mcp">MCP integration</a>
     <a href="#mcp-tools-reference" style="padding-left:24px;">↳ tools reference</a>
     <a href="#ingest">Self-serve ingest</a>
+    <a href="#progress-protocol" style="padding-left:24px;">↳ progress protocol</a>
     <a href="#provider">LLM provider abstraction</a>
     <a href="#extensibility">Extensibility</a>
     <a href="#security">Security & privacy</a>
@@ -412,18 +413,70 @@
     <h2 id="ingest">Self-serve ingestion</h2>
     <p>
       The dashboard exposes an <b>Index expert</b> modal that fires off the full pipeline as a
-      background job. The user pastes a URL + API key (saved chmod 600 to <code>.env</code>) and
-      watches the streaming subprocess log.
+      background job. The user pastes a URL, API key (saved chmod 600 to <code>.env</code>),
+      a time window (1d/1w/1m/3m/6m/1y/all/custom), and a worker count (1&ndash;8) — then
+      watches the live phase-by-phase progress dashboard.
     </p>
-    <pre><code>Browser            Flask /api/ingest           Background thread
-──────             ─────────────────           ─────────────────
-POST { url,    →   spawn thread                register source
-       api_key }   return job_id            →  fetch_channel.py (streaming)
-                                            →  extract_knowledge.py (streaming)
-GET /api/ingest                             →  build_knowledge.py
-    /status/&lt;id&gt;   ←   { step, percent, log }
-(poll loop)        ←   { status:done }
-                       reload UI</code></pre>
+    <pre><code>Browser              Flask /api/ingest           Background thread
+──────               ─────────────────           ─────────────────
+POST { url,      →   spawn thread                register source
+       api_key,        return job_id           → fetch_channel.py
+       window,                                    (subprocess, streaming)
+       workers }                                  → emits @@PROGRESS@@ events
+                                              → extract_knowledge.py
+GET /api/ingest                                   → emits @@PROGRESS@@ events
+    /status/&lt;id&gt;  ←   { phases: {              → build_knowledge.py
+(poll @1 Hz)             list:  {done},           → emits @@PROGRESS@@ events
+                         fetch: {running,
+                            step:22, total:64,
+                            eta_sec:83,
+                            current_item:{id,title}},
+                         extract:   {pending},
+                         aggregate: {pending}}}
+                  ←   { status:done }
+                       render dashboard, reload atlas</code></pre>
+
+    <h3 id="progress-protocol">Structured progress protocol</h3>
+    <p>
+      Subprocesses emit single-line structured events alongside their regular
+      log output. <code>app.py</code> parses these out of the stdout stream and
+      maintains a typed state object per phase in <code>JOBS[job_id].phases</code>.
+    </p>
+    <pre><code>@@PROGRESS@@ {"event":"phase_start","phase":"fetch","total":64,"workers":4}
+@@PROGRESS@@ {"event":"item_done","phase":"fetch","step":22,"total":64,
+              "id":"abc123","title":"...","status":"fetched",
+              "counts":{"fetched":22,"cached":0,"no_subs":0,"failed":0}}
+@@PROGRESS@@ {"event":"phase_done","phase":"fetch","elapsed_sec":40.9,
+              "summary":{"total":64,"fetched":22,"cached":0,
+                         "no_subs":42,"failed":0}}</code></pre>
+    <p>
+      Each phase records <code>step</code>, <code>total</code>, <code>current_item</code>,
+      <code>started_at</code>, <code>elapsed_sec</code>, <code>eta_sec</code>
+      (computed from rate over elapsed time), and a <code>summary</code> once
+      the phase completes. This drives the live dashboard in the web UI:
+    </p>
+    <table>
+      <thead><tr><th>Phase</th><th>Sub-pipeline</th><th>Per-item visibility</th></tr></thead>
+      <tbody>
+        <tr><td><code>list</code></td>
+            <td><code>yt-dlp --flat-playlist</code> channel enumeration</td>
+            <td>Total video count</td></tr>
+        <tr><td><code>fetch</code></td>
+            <td>Parallel yt-dlp transcript downloads</td>
+            <td>Each video's id + title + status as it completes; cached / fetched / no_subs / failed counts; rate (videos/s); per-phase ETA</td></tr>
+        <tr><td><code>extract</code></td>
+            <td>LLM extraction (xAI / Anthropic / OpenAI)</td>
+            <td>Each video's id + title at start; card count + duration at completion; per-phase ETA</td></tr>
+        <tr><td><code>aggregate</code></td>
+            <td><code>build_knowledge.py</code> rebuilds SQLite + JSON exports + FTS5</td>
+            <td>Total cards / videos / categories on completion</td></tr>
+      </tbody>
+    </table>
+    <p>
+      Raw subprocess stdout is still kept verbatim in a foldable
+      &ldquo;Streaming log&rdquo; panel for debugging &mdash; the progress events
+      are an additive structured channel, not a replacement.
+    </p>
 
     <h2 id="provider">LLM provider abstraction</h2>
     <p><code>extract_knowledge.py</code> is provider-agnostic by design:</p>

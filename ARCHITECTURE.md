@@ -314,25 +314,58 @@ See [HOW_TO_CONNECT.md](HOW_TO_CONNECT.md) for the full integration guide.
   ───────                  ─────────────────                ─────────────────
      │                            │                                │
      │ POST { url, source_id,     │                                │
-     │        provider, api_key } │                                │
+     │        provider, api_key,  │                                │
+     │        window, workers }   │                                │
      ├───────────────────────────►│                                │
      │                            │ spawn thread, return job_id    │
      │◄───────────────────────────┤                                │
      │                            │                                │
      │ GET /api/ingest/status/    │                                │
-     │     <job_id>  (poll)       │  registers source in JSON      │
+     │     <job_id>  (poll @1Hz)  │  registers source in JSON      │
      ├───────────────────────────►│  → spawns fetch_channel.py     │
-     │  { step:fetch, log:[...] } │     (subprocess, streaming)    │
-     │◄───────────────────────────┤     → captures stdout          │
-     │                            │  → spawns extract_knowledge.py │
-     │  { step:extract, ... }     │     → captures stdout          │
-     │◄───────────────────────────┤  → spawns build_knowledge.py   │
-     │  { step:done, percent:100 }│     → rebuilds atlas           │
+     │  { phases: {               │     (subprocess, streaming)    │
+     │     list:   {done},        │     → emits @@PROGRESS@@ JSON  │
+     │     fetch:  {running,      │       events on stdout         │
+     │       step:22, total:64,   │  → spawns extract_knowledge.py │
+     │       eta_sec:83,          │     → @@PROGRESS@@ events      │
+     │       current_item:{...}}, │  → spawns build_knowledge.py   │
+     │     extract: {pending},    │     → @@PROGRESS@@ events      │
+     │     aggregate:{pending}}}  │                                │
      │◄───────────────────────────┤                                │
-     │   reload UI                │                                │
+     │   render phase dashboard   │                                │
+     │                            │                                │
+     │  ...continues polling...   │                                │
+     │                            │                                │
+     │  { phases: {... all done}, │                                │
+     │    status: done }          │                                │
+     │◄───────────────────────────┤                                │
+     │   reload atlas             │                                │
 ```
 
-The web modal accepts the user's choice of provider (xAI Grok, Anthropic Claude, or OpenAI). API keys are saved to a local `.env` (chmod 600) and never logged.
+The web modal accepts the user's choice of provider (xAI Grok, Anthropic Claude, or OpenAI), time window (1d/1w/1m/3m/6m/1y/all/custom), and worker count (1–8). API keys are saved to a local `.env` (chmod 600) and never logged.
+
+### Structured progress protocol
+
+Subprocesses (`fetch_channel.py`, `extract_knowledge.py`, `build_knowledge.py`) emit single-line structured events alongside their regular log output:
+
+```
+@@PROGRESS@@ {"event":"phase_start","phase":"fetch","total":64,"workers":4}
+@@PROGRESS@@ {"event":"item_done","phase":"fetch","step":22,"total":64,
+              "id":"abc123","title":"...","status":"fetched","counts":{...}}
+@@PROGRESS@@ {"event":"phase_done","phase":"fetch","elapsed_sec":40.9,
+              "summary":{"total":64,"fetched":22,"cached":0,"no_subs":42,"failed":0}}
+```
+
+`app.py` parses these out of the stdout stream and maintains a typed state object per phase in `JOBS[job_id].phases`. Each phase records `step`, `total`, `current_item`, `started_at`, `elapsed_sec`, `eta_sec` (computed from rate over elapsed time), and a `summary` once the phase completes. This drives the live phase-by-phase dashboard in the web UI:
+
+| Phase | Sub-pipeline | Per-item visibility |
+|---|---|---|
+| `list` | `yt-dlp --flat-playlist` to enumerate the channel | total video count |
+| `fetch` | parallel yt-dlp transcript downloads | each video's id + title + status as it completes; cached / fetched / no_subs / failed counts; rate (videos/s); per-phase ETA |
+| `extract` | LLM extraction (xAI / Anthropic / OpenAI) | each video's id + title at start; card count + duration at completion; per-phase ETA |
+| `aggregate` | `build_knowledge.py` rebuilds SQLite + JSON exports + FTS5 | total cards / videos / categories on completion |
+
+Raw subprocess stdout is still kept verbatim in a foldable "Streaming log" panel for debugging — the progress events are an additive structured channel, not a replacement.
 
 ---
 

@@ -793,6 +793,88 @@ class _Cancelled(Exception):
     """Raised internally when the user has requested job cancellation."""
 
 
+PROGRESS_MARKER = "@@PROGRESS@@ "
+
+
+def _handle_progress_event(job_id, event):
+    """Update the job's structured progress from a single progress event.
+
+    Schema in JOBS[job_id]["phases"]:
+        {
+          "fetch":   { phase, total, step, current_item, started_at,
+                       elapsed_sec, eta_sec, rate, summary, status },
+          "extract": { ... same shape ... },
+          "aggregate": { ... },
+          ...
+        }
+    Plus JOBS[job_id]["active_phase"] for the currently-running phase.
+    """
+    ev = event.get("event")
+    phase = event.get("phase")
+    if not phase:
+        return
+    with JOBS_LOCK:
+        j = JOBS.setdefault(job_id, {"log": []})
+        phases = j.setdefault("phases", {})
+        ph = phases.setdefault(phase, {
+            "phase": phase, "step": 0, "total": 0,
+            "started_at": None, "elapsed_sec": 0, "eta_sec": None,
+            "rate": None, "summary": None, "status": "pending",
+            "current_item": None,
+        })
+
+        if ev == "phase_start":
+            ph.update({
+                "started_at": time.time(),
+                "total": event.get("total", ph.get("total", 0)),
+                "status": "running",
+                "message": event.get("message"),
+                "workers": event.get("workers"),
+                "provider": event.get("provider"),
+                "model": event.get("model"),
+            })
+            j["active_phase"] = phase
+
+        elif ev == "item_start":
+            ph["current_item"] = {
+                "id": event.get("id"),
+                "title": event.get("title"),
+                "started_at": time.time(),
+            }
+            ph["total"] = event.get("total", ph["total"])
+
+        elif ev == "item_done":
+            ph["step"] = event.get("step", ph["step"] + 1)
+            ph["total"] = event.get("total", ph["total"])
+            ph["current_item"] = {
+                "id": event.get("id"),
+                "title": event.get("title"),
+                "status": event.get("status"),
+                "cards": event.get("cards"),
+                "completed_at": time.time(),
+            }
+            if event.get("counts"):
+                ph["counts"] = event["counts"]
+            # ETA: rate over the phase's elapsed time
+            if ph["started_at"]:
+                ph["elapsed_sec"] = round(time.time() - ph["started_at"], 1)
+                if ph["step"] > 0 and ph["elapsed_sec"] > 0:
+                    rate = ph["step"] / ph["elapsed_sec"]
+                    ph["rate"] = round(rate, 2)
+                    remaining = max(0, ph["total"] - ph["step"])
+                    ph["eta_sec"] = int(remaining / rate) if rate > 0 else None
+
+        elif ev == "phase_done":
+            ph["status"] = "done"
+            ph["step"] = ph.get("total") or ph["step"]
+            ph["summary"] = event.get("summary")
+            ph["elapsed_sec"] = event.get("elapsed_sec", ph.get("elapsed_sec"))
+            ph["eta_sec"] = 0
+            ph["completed_at"] = time.time()
+            # If this was the active phase, leave active_phase as-is so the UI
+            # can still highlight the last-running phase until the next one starts.
+
+
 def _stream_subprocess(args, job_id, step_label):
     """Run a child process, capture stdout/stderr into the job log.
     The child runs in its own process group so a cancel request can terminate
@@ -810,7 +892,15 @@ def _stream_subprocess(args, job_id, step_label):
     _job_set_proc(job_id, proc)
     try:
         for line in proc.stdout:
-            _job_log(job_id, line.rstrip())
+            # Two channels: structured progress (parsed) + raw log lines (verbatim)
+            if line.startswith(PROGRESS_MARKER):
+                try:
+                    event = json.loads(line[len(PROGRESS_MARKER):])
+                    _handle_progress_event(job_id, event)
+                except json.JSONDecodeError:
+                    pass  # fall through and log it anyway for debugging
+            else:
+                _job_log(job_id, line.rstrip())
             if _job_is_cancelled(job_id):
                 _terminate_proc(proc)
                 raise _Cancelled()

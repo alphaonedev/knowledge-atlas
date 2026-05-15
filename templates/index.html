@@ -629,18 +629,66 @@
     </div>
 
     <div id="ingest-progress" style="display:none;">
-      <div style="margin-bottom:8px; font-size:13px;">
+
+      <!-- High-level status line -->
+      <div style="margin-bottom:8px; font-size:13px; display:flex; align-items:center; gap:8px;">
         <span id="prog-step" class="pill kind-principle">starting…</span>
-        <span id="prog-msg" class="muted" style="margin-left:8px;"></span>
+        <span id="prog-msg" class="muted"></span>
       </div>
-      <div style="height:8px; background:var(--panel-2); border-radius:4px; overflow:hidden; margin-bottom:14px;">
+      <div style="height:8px; background:var(--panel-2); border-radius:4px; overflow:hidden; margin-bottom:6px;">
         <div id="prog-bar" style="height:100%; width:0%; background:linear-gradient(90deg,var(--accent),var(--principle)); transition:width 0.4s;"></div>
       </div>
-      <div id="prog-log" style="
-        background:#f8fafc; border:1px solid var(--border); border-radius:6px;
-        padding:12px 14px; font:12px/1.5 ui-monospace, monospace; color:#1f2937;
-        max-height:280px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;"></div>
-      <div id="prog-actions" style="margin-top:16px; display:flex; justify-content:flex-end; gap:10px;">
+      <div id="prog-overall-meta" class="muted" style="font-size:11px; text-align:right; margin-bottom:18px;">—</div>
+
+      <!-- Per-phase status table -->
+      <style>
+        .phase-row {
+          display:grid; grid-template-columns: 24px 1fr 110px 90px;
+          align-items:center; gap:10px;
+          padding:10px 12px;
+          border:1px solid var(--border); border-radius:8px;
+          background:var(--panel); margin-bottom:6px;
+          font-size:13px;
+        }
+        .phase-row.active { border-color: var(--accent); background: var(--accent-soft); }
+        .phase-row.done   { opacity: 0.85; }
+        .phase-row.failed { border-color: var(--warning-bd, #f3bcbc); background: var(--warning-bg, #fbe2e2); }
+        .phase-icon  { font-weight: 700; text-align:center; font-size: 14px; }
+        .phase-icon.s-done   { color: var(--tactic); }
+        .phase-icon.s-active { color: var(--accent); }
+        .phase-icon.s-pending{ color: var(--muted-2, #9aa2af); }
+        .phase-icon.s-failed { color: var(--warning); }
+        .phase-name  { font-weight: 600; color: var(--text); }
+        .phase-sub   { font-weight: 400; color: var(--muted); font-size: 11px; }
+        .phase-count { font-family: ui-monospace, Menlo, monospace; font-size: 12px;
+                       color: var(--text-soft); text-align: right; font-variant-numeric: tabular-nums; }
+        .phase-eta   { font-family: ui-monospace, Menlo, monospace; font-size: 11px;
+                       color: var(--muted); text-align: right; }
+        .phase-mini-bar { grid-column: 1 / -1; height: 4px; background: var(--panel-2);
+                          border-radius: 2px; overflow: hidden; margin-top: 4px; }
+        .phase-mini-bar > div { height:100%; background: var(--accent); width:0%; transition: width 0.4s; }
+      </style>
+      <div id="phase-summary" style="margin-bottom:14px;"></div>
+
+      <!-- Currently processing -->
+      <div id="prog-current" style="display:none; margin-bottom:14px; padding:10px 12px;
+           background:var(--bg-tint); border-radius:8px; border-left:3px solid var(--accent);
+           font-size:12px; color:var(--text-soft);">
+        <div id="prog-current-line"></div>
+      </div>
+
+      <!-- Foldable streaming log -->
+      <details style="margin-bottom:12px;">
+        <summary class="muted" style="cursor:pointer; font-size:12px; padding:6px 0;">
+          ▶ Streaming log (subprocess stdout — for debugging)
+        </summary>
+        <div id="prog-log" style="margin-top:6px;
+          background:#f8fafc; border:1px solid var(--border); border-radius:6px;
+          padding:12px 14px; font:11px/1.5 ui-monospace, monospace; color:#1f2937;
+          max-height:240px; overflow-y:auto; white-space:pre-wrap; word-break:break-all;"></div>
+      </details>
+
+      <div id="prog-actions" style="display:flex; justify-content:flex-end; gap:10px;">
         <button id="prog-stop" style="
           background:transparent; color:var(--warning); border:1px solid var(--warning-bd, #f3bcbc);
           padding:10px 16px; border-radius:8px; cursor:pointer; font:600 13px inherit;">
@@ -1165,6 +1213,116 @@ $("#submit-ingest").addEventListener("click", async () => {
   pollIngest(job_id);
 });
 
+// Phase metadata used by the dashboard.
+// Order = display order; weight = approx % of total work for the overall bar.
+const PHASE_META = [
+  { id: "list",      label: "List videos",         sub: "yt-dlp channel scan",   weight:  3 },
+  { id: "fetch",     label: "Download transcripts",sub: "yt-dlp · parallel",     weight: 30 },
+  { id: "extract",   label: "Extract knowledge",   sub: "LLM · per-video cards", weight: 60 },
+  { id: "aggregate", label: "Index & build atlas", sub: "SQLite + FTS5",          weight:  7 },
+];
+
+function _human_duration(s) {
+  if (s == null) return "—";
+  s = Math.max(0, Math.round(s));
+  if (s < 60) return s + "s";
+  const m = Math.floor(s / 60), r = s % 60;
+  if (m < 60) return r ? `${m}m ${r}s` : `${m}m`;
+  const h = Math.floor(m / 60), rm = m % 60;
+  return rm ? `${h}h ${rm}m` : `${h}h`;
+}
+
+function renderPhaseSummary(s) {
+  const phases = s.phases || {};
+  const active = s.active_phase;
+  const html = PHASE_META.map(meta => {
+    const p = phases[meta.id] || {};
+    const status = p.status || "pending";
+    const isActive = active === meta.id && status === "running";
+    const stateClass = status === "done" ? "done"
+                      : status === "failed" ? "failed"
+                      : isActive ? "active" : "";
+    const icon = status === "done" ? "✓"
+                : status === "failed" ? "✗"
+                : isActive ? "▶"
+                : "·";
+    const iconClass = status === "done" ? "s-done"
+                    : status === "failed" ? "s-failed"
+                    : isActive ? "s-active" : "s-pending";
+
+    let countText = "";
+    let etaText = "";
+    if (status === "done" && p.summary) {
+      // Compose a phase-specific summary line
+      if (meta.id === "fetch") {
+        countText = `✓ ${p.summary.fetched || 0} fetched`
+                  + (p.summary.cached ? `, ${p.summary.cached} cached` : "")
+                  + (p.summary.no_subs ? `, ${p.summary.no_subs} skipped` : "")
+                  + (p.summary.failed ? `, ${p.summary.failed} failed` : "");
+      } else if (meta.id === "extract") {
+        countText = `${p.summary.cards || 0} cards · ${p.summary.videos || 0} videos`;
+      } else if (meta.id === "aggregate") {
+        countText = `${p.summary.cards || 0} cards · ${p.summary.videos || 0} videos · ${p.summary.categories || 0} topics`;
+      } else if (meta.id === "list") {
+        countText = `${p.summary.videos_in_channel || 0} videos found`;
+      } else {
+        countText = "done";
+      }
+      etaText = p.elapsed_sec ? `${_human_duration(p.elapsed_sec)}` : "—";
+    } else if (status === "running") {
+      countText = (p.total ? `${p.step || 0} / ${p.total}` : "");
+      etaText = p.eta_sec != null ? `ETA ${_human_duration(p.eta_sec)}` : "running…";
+    } else {
+      countText = "—";
+      etaText = "pending";
+    }
+
+    const phasePercent = (p.total > 0) ? Math.round(100 * (p.step || 0) / p.total) : (status === "done" ? 100 : 0);
+    return `
+      <div class="phase-row ${stateClass}">
+        <span class="phase-icon ${iconClass}">${icon}</span>
+        <span>
+          <div class="phase-name">${meta.label}</div>
+          <div class="phase-sub">${meta.sub}${p.workers ? ` · ${p.workers} workers` : ""}${p.provider ? ` · ${p.provider}/${p.model}` : ""}</div>
+        </span>
+        <span class="phase-count">${countText}</span>
+        <span class="phase-eta">${etaText}</span>
+        ${(isActive && p.total > 0) ? `<div class="phase-mini-bar"><div style="width:${phasePercent}%"></div></div>` : ""}
+      </div>
+    `;
+  }).join("");
+  $("#phase-summary").innerHTML = html;
+
+  // Currently-processing line (only when active)
+  const cur = phases[active]?.current_item;
+  if (cur && phases[active]?.status === "running") {
+    const verb = active === "fetch" ? "Downloading" : active === "extract" ? "Extracting cards from" : "Processing";
+    $("#prog-current").style.display = "block";
+    $("#prog-current-line").innerHTML =
+      `<b>${verb}:</b> <code>${cur.id || "—"}</code>  —  ${cur.title || ""}`;
+  } else {
+    $("#prog-current").style.display = "none";
+  }
+}
+
+function computeOverallPercent(s) {
+  // Sum weighted progress across phases.
+  const phases = s.phases || {};
+  let pct = 0;
+  for (const meta of PHASE_META) {
+    const p = phases[meta.id];
+    if (!p) continue;
+    if (p.status === "done") {
+      pct += meta.weight;
+    } else if (p.status === "running" && p.total > 0) {
+      pct += meta.weight * Math.min(1, (p.step || 0) / p.total);
+    } else if (p.status === "running") {
+      pct += meta.weight * 0.1;  // started but no items yet
+    }
+  }
+  return Math.min(99, Math.round(pct));
+}
+
 async function pollIngest(job_id) {
   let lastLogLen = 0;
   while (true) {
@@ -1175,9 +1333,31 @@ async function pollIngest(job_id) {
       await new Promise(r => setTimeout(r, 800));
       continue;
     }
-    $("#prog-step").textContent = s.step || "running";
+
+    // High-level status pill + message
+    const isTerminal = s.status === "done" || s.status === "error"
+                    || s.status === "awaiting_extraction" || s.status === "cancelled";
+    $("#prog-step").textContent = s.active_phase || s.step || s.status || "starting";
     $("#prog-msg").textContent = s.message || "";
-    $("#prog-bar").style.width = (s.percent || 0) + "%";
+
+    // Overall progress bar — server-side percent or computed from phases
+    const pct = isTerminal && s.status === "done" ? 100 :
+                (s.percent && s.percent > 0 ? Math.min(99, s.percent) : computeOverallPercent(s));
+    $("#prog-bar").style.width = pct + "%";
+
+    // Aggregate ETA across all running + pending phases
+    const phases = s.phases || {};
+    let totalEta = null;
+    const active = phases[s.active_phase];
+    if (active && active.eta_sec != null) totalEta = active.eta_sec;
+    const overallMeta = [];
+    if (totalEta != null) overallMeta.push(`<b>ETA:</b> ${_human_duration(totalEta)} in current phase`);
+    overallMeta.push(`overall ${pct}%`);
+    $("#prog-overall-meta").innerHTML = overallMeta.join("  ·  ");
+
+    renderPhaseSummary(s);
+
+    // Log
     const log = (s.log || []).slice(-200);
     if (log.length !== lastLogLen) {
       const el = $("#prog-log");
@@ -1185,16 +1365,18 @@ async function pollIngest(job_id) {
       el.scrollTop = el.scrollHeight;
       lastLogLen = log.length;
     }
-    if (s.status === "done" || s.status === "error" || s.status === "awaiting_extraction" || s.status === "cancelled") {
+
+    if (isTerminal) {
       $("#prog-stop").style.display = "none";
       $("#prog-close").style.display = "inline-block";
       $("#prog-close").textContent =
-        s.status === "done" ? "Close & reload atlas"
-        : "Close";
+        s.status === "done" ? "Close & reload atlas" : "Close";
       $("#prog-close").onclick = () => {
         closeModal();
         if (s.status === "done") location.reload();
       };
+      // Final percent: 100 on done, hold current on cancel/error
+      if (s.status === "done") $("#prog-bar").style.width = "100%";
       return;
     }
     await new Promise(r => setTimeout(r, 1200));

@@ -233,6 +233,15 @@ def srt_to_text(srt_path):
 _print_lock = threading.Lock()
 
 
+def _emit_progress(event, **fields):
+    """Emit a single-line structured progress event for app.py to parse.
+    Format: @@PROGRESS@@ {"event":"...","phase":"...",...}
+    Regular log output continues alongside — this is an additive side-channel."""
+    payload = {"event": event, **fields}
+    with _print_lock:
+        print(f"@@PROGRESS@@ {json.dumps(payload, default=str)}", flush=True)
+
+
 def _process_one_video(v, raw_dir, txt_dir, existing, source_id, since, until,
                        max_retries=3):
     """Download one video's transcript with retry + exponential backoff.
@@ -322,9 +331,12 @@ def main():
     raw_dir.mkdir(parents=True, exist_ok=True)
     txt_dir.mkdir(parents=True, exist_ok=True)
 
+    _emit_progress("phase_start", phase="list", message=f"Listing videos from {args.url}")
     print(f"[1/3] Listing videos from {args.url} (source: {args.source})")
     videos = list_videos(args.url)
     print(f"      Found {len(videos)} videos.")
+    _emit_progress("phase_done", phase="list",
+                   summary={"videos_in_channel": len(videos)})
 
     # Resume scan: how many of these are already on disk and valid?
     valid_ids = {p.stem for p in txt_dir.glob("*.txt")
@@ -351,10 +363,14 @@ def main():
             pass
 
     print(f"[2/3] Downloading transcripts with {args.workers} parallel worker(s)…")
+    total = len(videos)
+    _emit_progress("phase_start", phase="fetch", total=total,
+                   workers=args.workers,
+                   message=f"Downloading {total} transcripts with {args.workers} workers"
+                          + (f" (window: {args.window})" if args.window != "all" else ""))
     records = []
     counts = {"cached": 0, "fetched": 0, "no_subs": 0, "failed": 0, "skipped": 0}
     done = 0
-    total = len(videos)
     started = time.time()
 
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
@@ -373,6 +389,10 @@ def main():
             done += 1
             if rec is not None:
                 records.append(rec)
+            _emit_progress("item_done", phase="fetch",
+                           step=done, total=total,
+                           id=v["id"], title=v["title"][:80], status=status,
+                           counts=dict(counts))
             with _print_lock:
                 tag = {"cached": "·", "fetched": "✓", "no_subs": "—",
                        "failed": "✗", "skipped": "·"}.get(status, "?")
@@ -398,6 +418,15 @@ def main():
     print(f"      Stage 2 done in {elapsed:.1f}s  ·  "
           f"cached={counts.get('cached',0)} fetched={counts.get('fetched',0)} "
           f"no_subs={counts.get('no_subs',0)} failed={counts.get('failed',0)}")
+    _emit_progress("phase_done", phase="fetch",
+                   elapsed_sec=round(elapsed, 1),
+                   summary={
+                       "total": total,
+                       "cached": counts.get("cached", 0),
+                       "fetched": counts.get("fetched", 0),
+                       "no_subs": counts.get("no_subs", 0),
+                       "failed": counts.get("failed", 0),
+                   })
 
     print(f"[3/3] Writing metadata to {meta_path}")
     _atomic_write_text(meta_path, json.dumps(records, indent=2, default=str))

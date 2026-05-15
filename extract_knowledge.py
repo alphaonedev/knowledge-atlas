@@ -113,6 +113,13 @@ def _atomic_write_text(path, content):
     os.replace(tmp, path)
 
 
+def _emit_progress(event, **fields):
+    """Emit a single-line structured progress event for app.py to parse.
+    Format: @@PROGRESS@@ {"event":"...","phase":"...",...}"""
+    payload = {"event": event, **fields}
+    print(f"@@PROGRESS@@ {json.dumps(payload, default=str)}", flush=True)
+
+
 def list_pending(source_id):
     """Return videos that still need extraction. Repairs the on-disk state
     on the way: existing .json files that don't parse as valid card docs
@@ -332,18 +339,38 @@ def main():
 
     total_cards = 0
     started = time.time()
+    _emit_progress("phase_start", phase="extract", total=len(pending),
+                   provider=provider, model=model,
+                   message=f"Extracting knowledge cards via {provider}/{model}")
+
     for i, v in enumerate(pending, 1):
         t0 = time.time()
+        _emit_progress("item_start", phase="extract",
+                       step=i, total=len(pending),
+                       id=v["id"], title=v["title"][:80])
         try:
             doc = extract_one(client, provider, model, schema, v)
             n = len(doc.get("cards", []))
             total_cards += n
             print(f"  [{i}/{len(pending)}] {v['id']}  {n} cards  ({time.time()-t0:.1f}s)  {v['title'][:60]}")
+            _emit_progress("item_done", phase="extract",
+                           step=i, total=len(pending),
+                           id=v["id"], title=v["title"][:80],
+                           cards=n, status="ok",
+                           item_elapsed_sec=round(time.time() - t0, 1))
         except Exception as e:
             print(f"  [{i}/{len(pending)}] {v['id']}  FAILED: {e}", file=sys.stderr)
+            _emit_progress("item_done", phase="extract",
+                           step=i, total=len(pending),
+                           id=v["id"], title=v["title"][:80],
+                           status="failed", error=str(e)[:200])
 
+    elapsed = time.time() - started
     print(f"\nDone. Extracted {total_cards} cards across {len(pending)} videos "
-          f"in {time.time()-started:.1f}s.")
+          f"in {elapsed:.1f}s.")
+    _emit_progress("phase_done", phase="extract",
+                   elapsed_sec=round(elapsed, 1),
+                   summary={"videos": len(pending), "cards": total_cards})
 
 
 if __name__ == "__main__":
