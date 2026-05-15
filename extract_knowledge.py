@@ -352,11 +352,16 @@ def main():
             doc = extract_one(client, provider, model, schema, v)
             n = len(doc.get("cards", []))
             total_cards += n
+            # Per-video kind breakdown — drives the live distribution viz
+            kinds = {}
+            for c in doc.get("cards", []):
+                k = (c.get("kind") or "unknown").strip().lower()
+                kinds[k] = kinds.get(k, 0) + 1
             print(f"  [{i}/{len(pending)}] {v['id']}  {n} cards  ({time.time()-t0:.1f}s)  {v['title'][:60]}")
             _emit_progress("item_done", phase="extract",
                            step=i, total=len(pending),
                            id=v["id"], title=v["title"][:80],
-                           cards=n, status="ok",
+                           cards=n, kinds=kinds, status="ok",
                            item_elapsed_sec=round(time.time() - t0, 1))
         except Exception as e:
             print(f"  [{i}/{len(pending)}] {v['id']}  FAILED: {e}", file=sys.stderr)

@@ -670,12 +670,66 @@
       </style>
       <div id="phase-summary" style="margin-bottom:14px;"></div>
 
+      <!-- Live visualization panel (rich charts for the active phase) -->
+      <div id="prog-viz" style="display:none; margin-bottom:14px;"></div>
+
       <!-- Currently processing -->
       <div id="prog-current" style="display:none; margin-bottom:14px; padding:10px 12px;
            background:var(--bg-tint); border-radius:8px; border-left:3px solid var(--accent);
            font-size:12px; color:var(--text-soft);">
         <div id="prog-current-line"></div>
       </div>
+
+      <style>
+        .viz-panel {
+          background: var(--panel); border: 1px solid var(--border);
+          border-radius: 10px; padding: 16px 18px;
+        }
+        .viz-row {
+          display: grid; grid-template-columns: 200px 1fr; gap: 18px;
+          align-items: center;
+        }
+        .viz-big {
+          font-family: var(--font-display); font-size: 48px; font-weight: 600;
+          letter-spacing: -0.02em; color: var(--text); line-height: 1;
+          font-variant-numeric: tabular-nums;
+        }
+        .viz-big-sub { color: var(--muted); font-size: 12px; margin-top: 4px;
+                       text-transform: uppercase; letter-spacing: 0.06em; }
+        .kind-bar-row {
+          display: flex; gap: 1px; height: 28px;
+          background: var(--panel-2); border-radius: 4px; overflow: hidden;
+          margin-top: 8px;
+        }
+        .kind-bar-seg {
+          display:flex; align-items:center; justify-content:center;
+          font: 600 11px var(--font-sans); color: white;
+          padding: 0 6px; transition: width 0.4s;
+          text-shadow: 0 1px 1px rgba(0,0,0,0.2);
+          white-space: nowrap; overflow: hidden;
+        }
+        .kind-bar-seg.kind-principle    { background: var(--principle); }
+        .kind-bar-seg.kind-tactic       { background: var(--tactic); }
+        .kind-bar-seg.kind-warning      { background: var(--warning); }
+        .kind-bar-seg.kind-framework    { background: var(--framework); }
+        .kind-bar-seg.kind-mental_model { background: var(--mental_model); }
+        .kind-bar-seg.kind-phrase       { background: var(--phrase); }
+        .kind-bar-seg.kind-quote        { background: var(--quote); }
+        .kind-bar-seg.kind-unknown      { background: var(--muted-2, #9aa2af); }
+        .kind-legend {
+          display: flex; gap: 12px; flex-wrap: wrap;
+          margin-top: 8px; font-size: 11px; color: var(--muted);
+        }
+        .kind-legend-dot { display:inline-block; width:9px; height:9px; border-radius:2px;
+                           vertical-align:middle; margin-right:5px; }
+        .sparkline-mini { height: 60px; width: 100%; display: block; }
+        .donut-wrap {
+          display: flex; align-items: center; gap: 16px;
+        }
+        .donut-wrap svg { flex-shrink: 0; }
+        .donut-legend { font-size: 12px; line-height: 1.7; color: var(--text-soft); }
+        .donut-legend b { color: var(--text); font-variant-numeric: tabular-nums; }
+      </style>
 
       <!-- Foldable streaming log -->
       <details style="margin-bottom:12px;">
@@ -1232,6 +1286,178 @@ function _human_duration(s) {
   return rm ? `${h}h ${rm}m` : `${h}h`;
 }
 
+// -- Visualizations: turn the JSON metric stream into actual graphics ------
+
+// Order/colors for the kind-distribution stacked bar (matches card pills)
+const KIND_DISPLAY_ORDER = ["principle", "tactic", "warning", "framework",
+                            "mental_model", "phrase", "quote", "unknown"];
+const KIND_COLOR = {
+  principle:    "#5b21b6",  tactic:    "#0e7a36",  warning:   "#b51c1c",
+  framework:    "#8a5500",  mental_model: "#0a6c80", phrase:   "#a8470a",
+  quote:        "#9d1f6c",  unknown:   "#9aa2af",
+};
+
+function renderKindBar(kinds_total) {
+  const total = Object.values(kinds_total || {}).reduce((a, b) => a + b, 0);
+  if (!total) return "";
+  const segs = KIND_DISPLAY_ORDER
+    .filter(k => kinds_total[k])
+    .map(k => {
+      const n = kinds_total[k];
+      const pct = (n / total * 100);
+      return `<div class="kind-bar-seg kind-${k}" style="width:${pct.toFixed(1)}%"
+                title="${k}: ${n} (${pct.toFixed(0)}%)">
+                ${pct >= 5 ? `${k.replace('_',' ')}<span style="opacity:.85;margin-left:5px">${n}</span>` : n}
+              </div>`;
+    }).join("");
+  const legend = KIND_DISPLAY_ORDER
+    .filter(k => kinds_total[k])
+    .map(k => `<span><span class="kind-legend-dot" style="background:${KIND_COLOR[k]}"></span>${k.replace('_',' ')} ${kinds_total[k]}</span>`)
+    .join("");
+  return `
+    <div class="kind-bar-row">${segs}</div>
+    <div class="kind-legend">${legend}</div>
+  `;
+}
+
+function renderSparkline(recent, valueKey, color, max) {
+  if (!recent || !recent.length) return "";
+  const w = 360, h = 50, padX = 4, padY = 6;
+  const xs = recent.map((_, i) => padX + i * (w - 2*padX) / Math.max(1, recent.length - 1));
+  const m = max || Math.max(1, ...recent.map(r => r[valueKey] || 0));
+  const ys = recent.map(r => h - padY - ((r[valueKey] || 0) / m) * (h - 2*padY));
+  // Bars sparkline
+  const barW = Math.max(2, (w - 2*padX) / recent.length - 2);
+  const bars = recent.map((r, i) => {
+    const x = padX + i * (w - 2*padX) / recent.length;
+    const y = h - padY - ((r[valueKey] || 0) / m) * (h - 2*padY);
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}"
+                 height="${(h - padY - y).toFixed(1)}" fill="${color}" opacity="0.85" rx="1"/>`;
+  }).join("");
+  return `<svg class="sparkline-mini" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <line x1="0" x2="${w}" y1="${h-padY}" y2="${h-padY}" stroke="#e3e6ec" stroke-width="1"/>
+    ${bars}
+  </svg>`;
+}
+
+function renderDonut(parts, total) {
+  // parts: array of {label, value, color}
+  const size = 96, stroke = 14, r = (size - stroke) / 2;
+  const cx = size / 2, cy = size / 2;
+  const circumference = 2 * Math.PI * r;
+  let offset = 0;
+  const segs = parts.filter(p => p.value > 0).map(p => {
+    const frac = p.value / total;
+    const seg = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none"
+                       stroke="${p.color}" stroke-width="${stroke}"
+                       stroke-dasharray="${(frac * circumference).toFixed(2)} ${circumference.toFixed(2)}"
+                       stroke-dashoffset="${(-offset).toFixed(2)}"
+                       transform="rotate(-90 ${cx} ${cy})"/>`;
+    offset += frac * circumference;
+    return seg;
+  }).join("");
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#f4f5f8" stroke-width="${stroke}"/>
+    ${segs}
+    <text x="${cx}" y="${cy + 2}" text-anchor="middle" dominant-baseline="middle"
+          font-family="-apple-system,system-ui,sans-serif" font-weight="700" font-size="22"
+          fill="#15171c" style="font-variant-numeric:tabular-nums;">${total}</text>
+  </svg>`;
+}
+
+function _fmtNum(n) {
+  return (n || 0).toLocaleString();
+}
+
+function renderExtractViz(p) {
+  const kinds = p.kinds_total || {};
+  const total = p.cards_total || 0;
+  const videosDone = p.step || 0;
+  const avg = videosDone > 0 ? (total / videosDone).toFixed(1) : "—";
+  const recent = (p.recent_items || []).slice(-15);
+  const sparkline = renderSparkline(recent, "cards", KIND_COLOR.principle);
+  const kindBar = renderKindBar(kinds);
+
+  return `
+    <div class="viz-panel">
+      <div class="viz-row">
+        <div>
+          <div class="viz-big">${_fmtNum(total)}</div>
+          <div class="viz-big-sub">cards extracted</div>
+          <div style="margin-top:10px; font-size:12px; color:var(--muted);">
+            <b style="color:var(--text)">${videosDone}</b> of ${p.total} videos done
+            ${p.provider ? ` · ${p.provider}/${p.model}` : ""}
+            ${avg !== "—" ? `<br>avg <b style="color:var(--text)">${avg}</b> cards/video` : ""}
+          </div>
+        </div>
+        <div>
+          ${kindBar || `<div class="muted" style="font-size:12px;padding:14px 0;">Waiting for first video to complete…</div>`}
+          ${recent.length ? `
+            <div style="margin-top:10px;">
+              <div style="font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:2px;">
+                Cards per video — last ${recent.length}
+              </div>
+              ${sparkline}
+            </div>
+          ` : ""}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderFetchViz(p) {
+  const c = p.counts || {};
+  const fetched = c.fetched || 0;
+  const cached  = c.cached || 0;
+  const noSubs  = c.no_subs || 0;
+  const failed  = c.failed || 0;
+  const done = p.step || 0;
+  const total = p.total || 0;
+  const rate = p.rate || 0;
+
+  const parts = [
+    {label: "fetched", value: fetched, color: KIND_COLOR.tactic},
+    {label: "cached",  value: cached,  color: "#3b82f6"},
+    {label: "no_subs", value: noSubs,  color: KIND_COLOR.unknown},
+    {label: "failed",  value: failed,  color: KIND_COLOR.warning},
+  ];
+  const donut = renderDonut(parts, done || 1);
+  const recent = (p.recent_items || []).slice(-15);
+  const recentBars = recent.map(r => {
+    const c = (r.status === "fetched") ? KIND_COLOR.tactic
+            : (r.status === "cached")  ? "#3b82f6"
+            : (r.status === "failed")  ? KIND_COLOR.warning
+            : KIND_COLOR.unknown;
+    return `<rect x="0" width="100%" height="6" fill="${c}" rx="1"/>`;
+  });
+
+  return `
+    <div class="viz-panel">
+      <div class="viz-row">
+        <div>
+          <div class="viz-big">${_fmtNum(done)}<span style="font-size:24px;color:var(--muted);">/${total}</span></div>
+          <div class="viz-big-sub">transcripts processed</div>
+          <div style="margin-top:10px; font-size:12px; color:var(--muted);">
+            ${rate ? `<b style="color:var(--text)">${rate}</b> videos/sec` : "warming up…"}
+            ${p.workers ? `<br><b style="color:var(--text)">${p.workers}</b> parallel workers` : ""}
+            ${p.eta_sec != null ? `<br>ETA <b style="color:var(--text)">${_human_duration(p.eta_sec)}</b>` : ""}
+          </div>
+        </div>
+        <div class="donut-wrap">
+          ${donut}
+          <div class="donut-legend">
+            <div><span class="kind-legend-dot" style="background:${KIND_COLOR.tactic}"></span>fetched      <b>${fetched}</b></div>
+            ${cached  ? `<div><span class="kind-legend-dot" style="background:#3b82f6"></span>cached       <b>${cached}</b></div>` : ""}
+            <div><span class="kind-legend-dot" style="background:${KIND_COLOR.unknown}"></span>no_subs      <b>${noSubs}</b></div>
+            ${failed  ? `<div><span class="kind-legend-dot" style="background:${KIND_COLOR.warning}"></span>failed       <b>${failed}</b></div>` : ""}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function renderPhaseSummary(s) {
   const phases = s.phases || {};
   const active = s.active_phase;
@@ -1356,6 +1582,25 @@ async function pollIngest(job_id) {
     $("#prog-overall-meta").innerHTML = overallMeta.join("  ·  ");
 
     renderPhaseSummary(s);
+
+    // Live visualization for the active phase (or last terminal phase)
+    const phases = s.phases || {};
+    const vizActive = s.active_phase;
+    const vizPhase = phases[vizActive];
+    const vizEl = $("#prog-viz");
+    if (vizActive === "fetch" && vizPhase) {
+      vizEl.innerHTML = renderFetchViz(vizPhase);
+      vizEl.style.display = "block";
+    } else if (vizActive === "extract" && vizPhase) {
+      vizEl.innerHTML = renderExtractViz(vizPhase);
+      vizEl.style.display = "block";
+    } else if (isTerminal && phases.extract && (phases.extract.cards_total || 0) > 0) {
+      // Even after done, keep showing the extraction stats
+      vizEl.innerHTML = renderExtractViz(phases.extract);
+      vizEl.style.display = "block";
+    } else {
+      vizEl.style.display = "none";
+    }
 
     // Log
     const log = (s.log || []).slice(-200);

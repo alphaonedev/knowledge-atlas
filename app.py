@@ -855,6 +855,29 @@ def _handle_progress_event(job_id, event):
             }
             if event.get("counts"):
                 ph["counts"] = event["counts"]
+
+            # ----- Aggregate live metrics for visualization -----
+            # Per-phase rolling buffer of the last 20 items (drives sparklines).
+            recent = ph.setdefault("recent_items", [])
+            recent.append({
+                "id": event.get("id"),
+                "title": (event.get("title") or "")[:60],
+                "status": event.get("status"),
+                "cards": event.get("cards"),
+                "elapsed": event.get("item_elapsed_sec"),
+                "t": time.time(),
+            })
+            if len(recent) > 20:
+                ph["recent_items"] = recent[-20:]
+
+            # Cumulative card count + per-kind totals (extract phase)
+            if "cards" in event and event["cards"] is not None:
+                ph["cards_total"] = (ph.get("cards_total") or 0) + (event["cards"] or 0)
+            if event.get("kinds"):
+                kt = ph.setdefault("kinds_total", {})
+                for k, n in event["kinds"].items():
+                    kt[k] = kt.get(k, 0) + n
+
             # ETA: rate over the phase's elapsed time
             if ph["started_at"]:
                 ph["elapsed_sec"] = round(time.time() - ph["started_at"], 1)
