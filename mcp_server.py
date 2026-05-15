@@ -338,12 +338,13 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="add_source",
             description=(
-                "Index a new knowledge source (YouTube channel). Runs the full "
+                "Index a NEW knowledge source (YouTube channel). Runs the full "
                 "pipeline: register → fetch transcripts → LLM-extract knowledge "
                 "cards → rebuild atlas. Returns a job_id; poll with "
-                "`ingest_status`. Use the `window` parameter to limit to recent "
-                "videos (cheap incremental updates). Auto-starts the Flask "
-                "service if not running."
+                "`ingest_status`. Auto-starts the Flask service if not running. "
+                "For refreshing a source you've ALREADY indexed, use "
+                "`update_source` instead — it auto-skips existing videos and "
+                "defaults to a sensible time window."
             ),
             inputSchema={
                 "type": "object",
@@ -369,6 +370,41 @@ async def list_tools() -> list[Tool]:
                                   "description": "model id (default: provider's default)"},
                 },
                 "required": ["url"],
+            },
+        ),
+        Tool(
+            name="update_source",
+            description=(
+                "Pull only net-new videos for an EXISTING source. Looks up the "
+                "channel URL from the registry and runs the same pipeline as "
+                "add_source, but with sensible defaults for refreshes: defaults "
+                "to a 1-week window and auto-computes `since` from the latest "
+                "upload_date already on disk so you never re-download what you "
+                "already have. The pipeline is idempotent end-to-end — cached "
+                "transcripts and existing card JSON are skipped automatically. "
+                "Use this (not add_source) when refreshing a channel you've "
+                "already indexed."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source_id": {"type": "string",
+                                  "description": "existing source id (see list_sources)"},
+                    "window":    {"type": "string",
+                                  "enum": ["1d", "1w", "1m", "3m", "6m", "1y", "all"],
+                                  "description": "time window for the refresh (default '1w'; "
+                                                 "ignored if `since` is set)"},
+                    "since":     {"type": "string",
+                                  "description": "absolute YYYYMMDD lower bound (overrides window)"},
+                    "until":     {"type": "string",
+                                  "description": "absolute YYYYMMDD upper bound"},
+                    "provider":  {"type": "string", "enum": ["xai", "anthropic", "openai"],
+                                  "description": "LLM provider for the extraction step "
+                                                 "(default: auto-detect from env keys)"},
+                    "model":     {"type": "string",
+                                  "description": "model id (default: provider's default)"},
+                },
+                "required": ["source_id"],
             },
         ),
         Tool(
@@ -442,6 +478,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         return _list_videos(arguments)
     if name == "add_source":
         return _add_source(arguments)
+    if name == "update_source":
+        return _update_source(arguments)
     if name == "ingest_status":
         return _ingest_status(arguments)
     if name == "cancel_ingest":
@@ -770,6 +808,92 @@ def _add_source(args):
         f"",
         f"Poll progress with the `ingest_status` tool, e.g. ingest_status job_id='{job_id}'.",
         f"To stop early: cancel_ingest job_id='{job_id}' (partial work is preserved).",
+    ]
+    return [TextContent(type="text", text="\n".join(out))]
+
+
+def _update_source(args):
+    """Refresh an existing source: look up its URL from sources.json, default
+    to a 1-week window, auto-compute `since` from the latest upload_date on
+    disk so we never re-download what we already have. Hands off to the same
+    /api/ingest endpoint as add_source — the pipeline is idempotent."""
+    sid = (args.get("source_id") or "").strip()
+    if not sid:
+        return [TextContent(type="text", text="**source_id** is required.")]
+
+    sources_path = ROOT / "sources.json"
+    try:
+        doc = json.loads(sources_path.read_text())
+    except Exception as e:
+        return [TextContent(type="text",
+                text=f"✗ Could not read sources.json: {e}")]
+    src = next((s for s in doc.get("sources", []) if s.get("id") == sid), None)
+    if not src:
+        return [TextContent(type="text",
+                text=f"Unknown source `{sid}`. Call `list_sources` to see valid ids. "
+                     f"To index a brand-new channel use `add_source` instead.")]
+    url = src.get("url")
+    if not url:
+        return [TextContent(type="text",
+                text=f"Source `{sid}` has no url recorded. Re-add with `add_source`.")]
+
+    # Auto-compute `since` from the latest upload_date already on disk so we
+    # only fetch genuinely new videos. The user can override with explicit
+    # `since` or `window`.
+    auto_since = None
+    if not args.get("since") and not args.get("window"):
+        meta_path = ROOT / "sources" / sid / "channel_metadata.json"
+        if meta_path.exists():
+            try:
+                meta = json.loads(meta_path.read_text())
+                dates = [m.get("upload_date") for m in meta
+                         if isinstance(m.get("upload_date"), str)
+                         and len(m["upload_date"]) == 8 and m["upload_date"].isdigit()]
+                if dates:
+                    auto_since = max(dates)  # YYYYMMDD; yt-dlp filter is inclusive
+            except Exception:
+                pass
+
+    if not _ensure_flask():
+        return [TextContent(type="text",
+                text="✗ Could not reach or start the Flask service on port 5179. "
+                     "Run `python3 atlas.py start` manually and try again.")]
+
+    payload = {
+        "url": url,
+        "source_id": sid,
+        "name": src.get("name") or sid,
+        "domain": src.get("domain") or "",
+        "expertise": src.get("expertise") or "",
+        "window": args.get("window") or ("all" if auto_since else "1w"),
+        "since": args.get("since") or auto_since,
+        "until": args.get("until"),
+        "provider": args.get("provider"),
+        "model": args.get("model"),
+        "save_api_key": True,
+    }
+    payload = {k: v for k, v in payload.items() if v is not None}
+    code, body = _http_json("POST", "/api/ingest", body=payload, timeout=15)
+    if code != 200:
+        return [TextContent(type="text",
+                text=f"✗ update start failed (HTTP {code}): {body.get('error', body)}")]
+    job_id = body.get("job_id")
+    out = [
+        f"# 🔄 Updating source `{sid}`",
+        "",
+        f"- **job_id**: `{job_id}`",
+        f"- **url**: {url}",
+        f"- **window**: {payload['window']}",
+        f"- **since**: {payload.get('since') or '—'}"
+        + (" *(auto-computed from latest upload_date on disk)*" if auto_since and not args.get('since') else ""),
+        f"- **until**: {payload.get('until') or '—'}",
+        f"- **provider**: {args.get('provider') or 'auto-detect'}",
+        "",
+        "The pipeline is idempotent: cached transcripts and existing card JSON "
+        "are skipped automatically. Only net-new videos hit the network and the LLM.",
+        "",
+        f"Poll progress with `ingest_status` job_id='{job_id}'.",
+        f"To stop early: `cancel_ingest` job_id='{job_id}' (partial work is preserved).",
     ]
     return [TextContent(type="text", text="\n".join(out))]
 

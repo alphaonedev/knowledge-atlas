@@ -473,7 +473,21 @@ def main():
                    })
 
     print(f"[3/3] Writing metadata to {meta_path}")
-    _atomic_write_text(meta_path, json.dumps(records, indent=2, default=str))
+    # Merge with existing on-disk records so a windowed run doesn't clobber the
+    # metadata of videos outside the window. Without this, build_knowledge.py
+    # loses the video_id → source_id map for older videos and silently
+    # reattributes their cards to sources[0] on the next rebuild.
+    final_meta = dict(existing)  # video_id → record from prior runs
+    for rec in records:
+        rid = rec.get("id") if rec else None
+        if rid:
+            final_meta[rid] = rec
+    final_records = list(final_meta.values())
+    new_in_run = len(final_records) - len(existing)
+    if new_in_run > 0:
+        print(f"      Merged {len(records)} from this run with {len(existing)} "
+              f"prior records → {len(final_records)} total ({new_in_run} net new).")
+    _atomic_write_text(meta_path, json.dumps(final_records, indent=2, default=str))
 
     have = sum(1 for r in records if r.get("has_transcript"))
     total_words = sum(r.get("word_count", 0) for r in records)
