@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Knowledge Atlas — MCP tools reference
+  Copyright (c) 2026 AlphaOne LLC. Licensed under Apache 2.0.
+  SPDX-License-Identifier: Apache-2.0
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 1480"
+     role="img" aria-label="Knowledge Atlas MCP tools — 14 tools across Browse, Query, Compare, Manage">
+  <defs>
+    <style>
+      .bg          { fill: #ffffff; }
+      .card        { fill: #f4f5f8; stroke: #e3e6ec; stroke-width: 1; rx: 12; }
+      .kpi-label   { font: 500 14px -apple-system, system-ui, sans-serif; fill: #6b7280; }
+      .kpi-value   { font: 700 36px -apple-system, system-ui, sans-serif; fill: #15171c;
+                     letter-spacing: -0.02em; }
+      .kpi-value-sm { font: 700 22px -apple-system, system-ui, sans-serif; fill: #15171c;
+                     letter-spacing: -0.01em; }
+
+      .col-head    { font: 600 13px -apple-system, system-ui, sans-serif; fill: #6b7280;
+                     text-transform: uppercase; letter-spacing: 0.06em; }
+      .col-rule    { stroke: #d3d7df; stroke-width: 1; }
+      .row-rule    { stroke: #e3e6ec; stroke-width: 1; }
+
+      .section-pill { rx: 5; }
+      .section-text { font: 700 11px -apple-system, system-ui, sans-serif;
+                     letter-spacing: 0.08em; }
+
+      .tool        { font: 500 14px ui-monospace, "SF Mono", Menlo, monospace; fill: #15171c; }
+      .purpose     { font: 400 14px -apple-system, system-ui, sans-serif; fill: #3a404b; }
+      .param       { font: 400 13px -apple-system, system-ui, sans-serif; fill: #3a404b; }
+      .param-req   { font: 600 13px -apple-system, system-ui, sans-serif; fill: #b51c1c; }
+      .param-opt   { font: 600 13px -apple-system, system-ui, sans-serif; fill: #6b7280; }
+
+      .footer      { font: 500 12px -apple-system, system-ui, sans-serif; fill: #6b7280; }
+      .footer-req  { font: 600 12px -apple-system, system-ui, sans-serif; fill: #b51c1c; }
+      .footer-opt  { font: 600 12px -apple-system, system-ui, sans-serif; fill: #6b7280; }
+    </style>
+  </defs>
+
+  <!-- background -->
+  <rect class="bg" width="1100" height="1480"/>
+
+  <!-- ===================== KPI cards ===================== -->
+  <g transform="translate(40,40)">
+    <rect class="card" width="320" height="92"/>
+    <text class="kpi-label" x="22" y="32">Total tools</text>
+    <text class="kpi-value" x="22" y="74">14</text>
+
+    <rect class="card" x="336" width="320" height="92"/>
+    <text class="kpi-label" x="358" y="32">Categories</text>
+    <text class="kpi-value" x="358" y="74">4</text>
+
+    <rect class="card" x="672" width="348" height="92"/>
+    <text class="kpi-label" x="694" y="32">Server</text>
+    <text class="kpi-value-sm" x="694" y="68">knowledge-atlas</text>
+  </g>
+
+  <!-- ===================== column headers ===================== -->
+  <g transform="translate(40,180)">
+    <text class="col-head" x="0"   y="14">Tool</text>
+    <text class="col-head" x="240" y="14">Purpose</text>
+    <text class="col-head" x="620" y="14">Parameters</text>
+    <line class="col-rule" x1="0" y1="30" x2="1020" y2="30"/>
+  </g>
+
+  <!-- ===================== BROWSE section ===================== -->
+  <g transform="translate(40,228)">
+    <rect class="section-pill" width="68" height="22" y="-16" fill="#f1ebfb"/>
+    <text class="section-text" x="10" y="0" fill="#5b21b6">BROWSE</text>
+
+    <!-- list_sources -->
+    <line class="row-rule" x1="0" y1="22" x2="1020" y2="22"/>
+    <text class="tool"    x="0"   y="48">list_sources</text>
+    <text class="purpose" x="240" y="48">Every indexed expert with contribution size</text>
+    <text class="param-opt" x="620" y="48">none</text>
+
+    <!-- list_categories -->
+    <line class="row-rule" x1="0" y1="66" x2="1020" y2="66"/>
+    <text class="tool"    x="0"   y="92">list_categories</text>
+    <text class="purpose" x="240" y="92">Every topical category with card counts</text>
+    <text class="param-opt" x="620" y="92">none</text>
+
+    <!-- list_videos -->
+    <line class="row-rule" x1="0" y1="110" x2="1020" y2="110"/>
+    <text class="tool"    x="0"   y="136">list_videos</text>
+    <text class="purpose" x="240" y="136">Every video with thesis and card count</text>
+    <text class="param" x="620" y="136"><tspan class="param-opt">opt:</tspan> source_id</text>
+
+    <!-- cross_coverage -->
+    <line class="row-rule" x1="0" y1="154" x2="1020" y2="154"/>
+    <text class="tool"    x="0"   y="180">cross_coverage</text>
+    <text class="purpose" x="240" y="180">Matrix of experts vs topics, with depth</text>
+    <text class="param-opt" x="620" y="180">none</text>
+
+    <line class="col-rule" x1="0" y1="200" x2="1020" y2="200"/>
+  </g>
+
+  <!-- ===================== QUERY section ===================== -->
+  <g transform="translate(40,460)">
+    <rect class="section-pill" width="58" height="22" y="-16" fill="#e3f4e8"/>
+    <text class="section-text" x="10" y="0" fill="#0e7a36">QUERY</text>
+
+    <line class="row-rule" x1="0" y1="22" x2="1020" y2="22"/>
+    <text class="tool"    x="0"   y="48">search_knowledge</text>
+    <text class="purpose" x="240" y="48">Full-text search across all cards</text>
+    <text class="param" x="620" y="44"><tspan class="param-req">req:</tspan> query</text>
+    <text class="param" x="620" y="62"><tspan class="param-opt">opt:</tspan> kind, limit</text>
+
+    <line class="row-rule" x1="0" y1="80" x2="1020" y2="80"/>
+    <text class="tool"    x="0"   y="106">get_card</text>
+    <text class="purpose" x="240" y="106">Fetch one card by numeric id</text>
+    <text class="param" x="620" y="106"><tspan class="param-req">req:</tspan> id</text>
+
+    <line class="row-rule" x1="0" y1="124" x2="1020" y2="124"/>
+    <text class="tool"    x="0"   y="150">teach_about</text>
+    <text class="purpose" x="240" y="150">Teaching packet, ordered for explanation</text>
+    <text class="param" x="620" y="146"><tspan class="param-req">req:</tspan> question</text>
+    <text class="param" x="620" y="164"><tspan class="param-opt">opt:</tspan> limit</text>
+
+    <line class="row-rule" x1="0" y1="182" x2="1020" y2="182"/>
+    <text class="tool"    x="0"   y="208">learn_category</text>
+    <text class="purpose" x="240" y="208">Every card on one topic, all sources</text>
+    <text class="param" x="620" y="208"><tspan class="param-req">req:</tspan> category</text>
+
+    <line class="col-rule" x1="0" y1="228" x2="1020" y2="228"/>
+  </g>
+
+  <!-- ===================== COMPARE section ===================== -->
+  <g transform="translate(40,720)">
+    <rect class="section-pill" width="76" height="22" y="-16" fill="#fbe5e5"/>
+    <text class="section-text" x="10" y="0" fill="#b51c1c">COMPARE</text>
+
+    <line class="row-rule" x1="0" y1="22" x2="1020" y2="22"/>
+    <text class="tool"    x="0"   y="48">cross_concept</text>
+    <text class="purpose" x="240" y="48">Every expert's take on one concept</text>
+    <text class="param" x="620" y="48"><tspan class="param-req">req:</tspan> term</text>
+
+    <line class="row-rule" x1="0" y1="66" x2="1020" y2="66"/>
+    <text class="tool"    x="0"   y="92">cross_compendium</text>
+    <text class="purpose" x="240" y="92">Every expert's cards on one category</text>
+    <text class="param" x="620" y="92"><tspan class="param-req">req:</tspan> category</text>
+
+    <line class="col-rule" x1="0" y1="112" x2="1020" y2="112"/>
+  </g>
+
+  <!-- ===================== MANAGE section ===================== -->
+  <g transform="translate(40,864)">
+    <rect class="section-pill" width="68" height="22" y="-16" fill="#fbdeec"/>
+    <text class="section-text" x="10" y="0" fill="#9d1f6c">MANAGE</text>
+
+    <!-- add_source — taller row because params wrap to 2 lines -->
+    <line class="row-rule" x1="0" y1="22" x2="1020" y2="22"/>
+    <text class="tool"    x="0"   y="48">add_source</text>
+    <text class="purpose" x="240" y="48">Index a new YouTube channel</text>
+    <text class="param" x="620" y="44"><tspan class="param-req">req:</tspan> url</text>
+    <text class="param" x="620" y="62"><tspan class="param-opt">opt:</tspan> name, domain, expertise, window, since,</text>
+    <text class="param" x="620" y="80">until, source_id, provider, model</text>
+
+    <line class="row-rule" x1="0" y1="98" x2="1020" y2="98"/>
+    <text class="tool"    x="0"   y="124">ingest_status</text>
+    <text class="purpose" x="240" y="124">Poll a running ingestion job</text>
+    <text class="param" x="620" y="124"><tspan class="param-req">req:</tspan> job_id</text>
+
+    <line class="row-rule" x1="0" y1="142" x2="1020" y2="142"/>
+    <text class="tool"    x="0"   y="168">cancel_ingest</text>
+    <text class="purpose" x="240" y="168">Stop a running job, preserve partial work</text>
+    <text class="param" x="620" y="168"><tspan class="param-req">req:</tspan> job_id</text>
+
+    <line class="row-rule" x1="0" y1="186" x2="1020" y2="186"/>
+    <text class="tool"    x="0"   y="212">remove_source</text>
+    <text class="purpose" x="240" y="208">Destructively delete a source</text>
+    <text class="purpose" x="240" y="226">(irreversible)</text>
+    <text class="param" x="620" y="208"><tspan class="param-req">req:</tspan> source_id</text>
+    <text class="param" x="620" y="226"><tspan class="param-opt">opt:</tspan> confirm</text>
+
+    <line class="col-rule" x1="0" y1="248" x2="1020" y2="248"/>
+  </g>
+
+  <!-- ===================== footer legend ===================== -->
+  <g transform="translate(40,1148)">
+    <text class="footer-req" x="0"  y="0">req</text>
+    <text class="footer"     x="32" y="0">= required  ·  </text>
+    <text class="footer-opt" x="130" y="0">opt</text>
+    <text class="footer"     x="166" y="0">= optional</text>
+  </g>
+</svg>

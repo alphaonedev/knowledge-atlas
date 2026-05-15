@@ -83,10 +83,21 @@
     <p>Stable endpoints for autonomous agents — <code>/ai/manifest</code>, <code>/ai/teach</code>, <code>/ai/cross/concept/&lt;term&gt;</code>. Discovery built in.</p>
   </div>
   <div class="surface-card">
-    <div class="kicker">For Claude</div>
+    <div class="kicker">For Claude / ChatGPT / Cursor</div>
     <h3>MCP server</h3>
-    <p>Drop-in tool surface for Claude Desktop, Claude Code, Cursor, Cline, and any MCP client. 10 tools, stdio JSON-RPC.</p>
+    <p>Drop-in tool surface for Claude Desktop, Claude Code, ChatGPT Desktop, Cursor, Cline, and any MCP client. <b>14 tools</b>, stdio JSON-RPC. <a href="architecture.html#mcp-tools-reference">See the tool reference →</a></p>
   </div>
+</div>
+
+<h2>MCP tools reference</h2>
+<p>
+  14 tools across four categories — browse the corpus, query it, compare experts side-by-side,
+  and manage sources. <b>Browse / query / compare</b> tools read SQLite directly and work even
+  when the dashboard is offline; <b>manage</b> tools mutate state and call back into the Flask service.
+</p>
+<div class="diagram" style="padding:0; background:transparent; border:0;">
+  <img src="mcp-tools.svg" alt="MCP tools reference — 14 tools across Browse, Query, Compare, Manage"
+       style="display:block; width:100%; max-width:1020px; margin:0 auto;">
 </div>
 
 <h2>System overview</h2>

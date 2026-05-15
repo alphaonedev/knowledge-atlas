@@ -43,6 +43,7 @@
     <a href="#data-model">Data model</a>
     <a href="#api">HTTP API</a>
     <a href="#mcp">MCP integration</a>
+    <a href="#mcp-tools-reference" style="padding-left:24px;">↳ tools reference</a>
     <a href="#ingest">Self-serve ingest</a>
     <a href="#provider">LLM provider abstraction</a>
     <a href="#extensibility">Extensibility</a>
@@ -141,7 +142,7 @@
 
       <rect x="260" y="358" width="200" height="72" rx="8" class="box-p"/>
       <text x="360" y="383" class="label" text-anchor="middle">mcp_server.py</text>
-      <text x="360" y="402" class="sub" text-anchor="middle">10 tools · stdio JSON-RPC</text>
+      <text x="360" y="402" class="sub" text-anchor="middle">14 tools · stdio JSON-RPC</text>
       <text x="360" y="418" class="sub" text-anchor="middle">direct SQLite access</text>
 
       <path class="ar" d="M 380 316 L 140 358"/>
@@ -395,6 +396,18 @@
     <p><b>Claude Code</b>:</p>
     <pre><code>claude mcp add knowledge-atlas --scope user -- \
   /absolute/path/to/python3 /absolute/path/to/knowledge-atlas/mcp_server.py</code></pre>
+
+    <h3 id="mcp-tools-reference">Tools reference</h3>
+    <p>
+      The MCP server exposes <b>14 tools</b> across four categories. Tools in the
+      <b>manage</b> category mutate state (require Flask running so they can call
+      back to <code>/api/ingest</code> and <code>/api/source</code>); all others
+      read SQLite directly and work even when the dashboard is offline.
+    </p>
+    <div class="diagram" style="padding:0; background:transparent; border:0;">
+      <img src="mcp-tools.svg" alt="MCP tools reference — 14 tools across Browse, Query, Compare, Manage"
+           style="display:block; width:100%; max-width:1020px; margin:0 auto;">
+    </div>
 
     <h2 id="ingest">Self-serve ingestion</h2>
     <p>

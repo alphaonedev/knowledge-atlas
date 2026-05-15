@@ -43,7 +43,9 @@ A polished single-page interface at `http://127.0.0.1:5179/` for browsing by top
 Stable endpoints for autonomous agents (`/ai/*`) and the cross-source correlation surface (`/ai/cross/*`). Discovery via `/ai/manifest`.
 
 ### 3. MCP server
-Drop-in tool surface for Claude Desktop, Claude Code, and any MCP client. 10 tools: `list_sources`, `search_knowledge`, `teach_about`, `learn_category`, `cross_concept`, `cross_compendium`, `cross_coverage`, `get_card`, `list_videos`, `list_categories`.
+Drop-in tool surface for Claude Desktop, Claude Code, ChatGPT Desktop, Cursor, Cline, and any MCP client. **14 tools** across 4 categories — browse, query, compare, manage.
+
+![Knowledge Atlas — MCP tools reference](docs/mcp-tools.svg)
 
 ## Quickstart
 

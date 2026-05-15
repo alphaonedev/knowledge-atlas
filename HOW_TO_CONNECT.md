@@ -6,7 +6,7 @@ you're sitting in front of.
 ```
                     ┌──────────────────────────────┐
    Claude Desktop ──┤  MCP server (mcp_server.py)  ├── SQLite knowledge.db
-   Claude Code     ─┤  10 tools, stdio JSON-RPC    │
+   Claude Code     ─┤  14 tools, stdio JSON-RPC    │
    Other MCP AIs  ──┘                              │
                                                    │
    Claude Code, curl, your scripts ──── HTTP /ai/* │── same SQLite
@@ -45,7 +45,7 @@ Add (or merge) the `knowledge-atlas` entry under `mcpServers`:
 **Step 2.** Quit and relaunch Claude Desktop.
 
 **Step 3.** In a chat, you'll see a 🔌 indicator showing `knowledge-atlas`
-is connected with 10 tools. Now you can ask things like:
+is connected with 14 tools. Now you can ask things like:
 
   - "List the sources in my knowledge atlas."
   - "Teach me about cross-examination in custody court."
@@ -138,7 +138,7 @@ Paste into claude.ai. Crude but always works.
 
 Anyone speaking MCP (Cline, Cursor, Continue.dev, your own scripts using
 the `mcp` Python SDK) can hook in the same way as Claude Desktop. Same
-config snippet, same 10 tools.
+config snippet, same 14 tools.
 
 ---
 
@@ -183,6 +183,6 @@ asyncio.run(main())
 "
 ```
 
-Expected output: `OK · 10 tools exposed`.
+Expected output: `OK · 14 tools exposed`.
 
 If that works, Claude Desktop will work too after you add the config.

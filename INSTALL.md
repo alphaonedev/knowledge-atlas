@@ -166,7 +166,7 @@ Add this to `~/Library/Application Support/Claude/claude_desktop_config.json` (m
 
 Use the absolute path to `python3` — Claude Desktop launches subprocesses with a stripped PATH. Find it with `which python3` (or use your `.venv` interpreter).
 
-Fully quit Claude Desktop (⌘Q on the menu bar) and relaunch. You'll see `knowledge-atlas` listed in **Local MCP servers** with 10 tools.
+Fully quit Claude Desktop (⌘Q on the menu bar) and relaunch. You'll see `knowledge-atlas` listed in **Local MCP servers** with 14 tools.
 
 Try these prompts:
 
@@ -215,7 +215,7 @@ async def main():
 
 asyncio.run(main())
 "
-# expect: OK · 10 tools
+# expect: OK · 14 tools
 ```
 
 ## Troubleshooting
