@@ -426,10 +426,13 @@ def _launch_agent_plist():
     python_path = sys.executable
     script_path = str(Path(__file__).resolve())
     cwd = str(Path(__file__).resolve().parent)
-    log_out = str(Path(cwd) / "data" / "atlas-tray.log")
-    log_err = str(Path(cwd) / "data" / "atlas-tray.err.log")
-    # Ensure log directory exists
-    (Path(cwd) / "data").mkdir(exist_ok=True)
+    # macOS 26 (Tahoe) TCC blocks launchd from opening files under ~/Downloads,
+    # ~/Documents, ~/Desktop, etc. — the spawn fails with EX_CONFIG (78) before
+    # any output. Use ~/Library/Logs/, which is permitted for user LaunchAgents.
+    log_dir = Path.home() / "Library" / "Logs" / "KnowledgeAtlas"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_out = str(log_dir / "atlas-tray.log")
+    log_err = str(log_dir / "atlas-tray.err.log")
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -511,7 +514,7 @@ def _install_macos():
         print(f"  · runs as user LaunchAgent: {LAUNCH_AGENT_LABEL}")
         print(f"  · auto-starts on login")
         print(f"  · auto-restarts if it crashes (KeepAlive)")
-        print(f"  · logs:  data/atlas-tray.log  +  data/atlas-tray.err.log")
+        print(f"  · logs:  ~/Library/Logs/KnowledgeAtlas/atlas-tray.log  +  .err.log")
         print(f"")
         print(f"To remove: python3 atlas_tray.py --uninstall")
         return 0
