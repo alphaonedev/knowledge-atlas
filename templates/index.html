@@ -1004,9 +1004,14 @@ async function renderSources() {
           <span class="category-tag">${escapeHtml(s.kind || "source")}</span>
           <span class="category-tag" style="font-family:var(--font-mono);">id: ${escapeHtml(s.id)}</span>
           <span class="muted" style="font-size:12px;">${s.videos} videos · ${s.cards} cards · ${s.categories} topics</span>
+          <button class="refresh-source-btn" data-source-id="${escapeHtml(s.id)}"
+                  title="Pull net-new videos for this source. Existing transcripts and cards are skipped automatically."
+                  style="margin-left:auto; background:transparent; color:var(--accent); border:1px solid var(--accent); padding:4px 10px; border-radius:6px; cursor:pointer; font:600 11px inherit;">
+            ↻ Refresh
+          </button>
           <button class="remove-source-btn" data-source-id="${escapeHtml(s.id)}" data-source-name="${escapeHtml(s.name || s.id)}"
                   data-videos="${s.videos}" data-cards="${s.cards}"
-                  style="margin-left:auto; background:transparent; color:var(--warning); border:1px solid var(--warning-bd, #f3bcbc); padding:4px 10px; border-radius:6px; cursor:pointer; font:600 11px inherit;">
+                  style="background:transparent; color:var(--warning); border:1px solid var(--warning-bd, #f3bcbc); padding:4px 10px; border-radius:6px; cursor:pointer; font:600 11px inherit;">
             Remove
           </button>
         </div>
@@ -1065,6 +1070,20 @@ async function renderSources() {
         btn.disabled = false;
         btn.textContent = "Remove";
       }
+    });
+  });
+
+  // Wire up Refresh buttons — opens the ingest modal in update mode for an
+  // already-indexed source. The pipeline is idempotent: cached transcripts
+  // and existing card JSON are skipped, so a windowed refresh only fetches
+  // genuinely new videos.
+  $$('.refresh-source-btn').forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const sid = btn.dataset.sourceId;
+      const source = sources.find(s => s.id === sid);
+      if (!source) return;
+      await openModalForUpdate(source);
     });
   });
 }
@@ -1252,11 +1271,42 @@ $$('.window-btn').forEach(b => b.addEventListener("click", () => {
   applyWindowUI();
 }));
 
+// Identity inputs that get pre-filled and locked in update mode. Kept in one
+// place so add↔update mode switches are symmetric.
+const IDENT_INPUTS = ["in-url", "in-id", "in-name", "in-domain", "in-expertise"];
+
+// True when the modal is open for refreshing an existing source rather than
+// indexing a new one. Used by the submit handler to skip the URL-required
+// validation (locked field) and by openModal() to know when to reset.
+let updateModeSource = null;
+
+function _resetModalToAddMode() {
+  updateModeSource = null;
+  document.querySelector('#ingest-modal h2').textContent = "Index a new domain expert";
+  const tagline = document.querySelector('#ingest-modal #ingest-form > p');
+  if (tagline) {
+    tagline.textContent =
+      "Paste a YouTube channel URL. The pipeline downloads every transcript, " +
+      "extracts knowledge cards via your chosen LLM provider, and merges the " +
+      "source into the unified atlas. Cross-source endpoints update automatically.";
+  }
+  $("#submit-ingest").textContent = "Start ingestion";
+  IDENT_INPUTS.forEach(id => {
+    const el = $('#' + id);
+    if (!el) return;
+    el.value = "";
+    el.disabled = false;
+    el.style.opacity = "";
+    el.style.cursor = "";
+  });
+}
+
 async function openModal() {
   modal.style.display = "flex";
   $("#ingest-form").style.display = "block";
   $("#ingest-progress").style.display = "none";
   $("#prog-close").style.display = "none";
+  _resetModalToAddMode();
   providersState = await J("/api/ingest/has_key");
   // Default the toggle to whichever provider has a key, else xai
   selectedProvider = providersState.auto_provider || "xai";
@@ -1264,6 +1314,61 @@ async function openModal() {
   selectedWindow = "all";
   applyWindowUI();
 }
+
+async function openModalForUpdate(s) {
+  // Open the regular modal then mutate it into refresh mode. Reusing the
+  // existing form keeps one source of truth for provider/window/workers.
+  await openModal();
+  updateModeSource = s;
+
+  document.querySelector('#ingest-modal h2').textContent =
+    `Refresh source: ${s.name || s.id}`;
+  const tagline = document.querySelector('#ingest-modal #ingest-form > p');
+  if (tagline) {
+    tagline.innerHTML =
+      "Pull only <b>net-new videos</b> for this already-indexed source. " +
+      "Existing transcripts and knowledge cards are skipped automatically — " +
+      "only videos in the time window that we haven't seen before hit the " +
+      "network and the LLM.";
+  }
+  $("#submit-ingest").textContent = "Pull net-new videos";
+
+  // Pre-fill the identity fields and lock them. The user shouldn't change URL
+  // or source_id on a refresh — that would either no-op or create a brand-new
+  // source under a confusing name.
+  $("#in-url").value = s.url || "";
+  $("#in-id").value = s.id;
+  $("#in-name").value = s.name || s.id;
+  $("#in-domain").value = s.domain || "";
+  $("#in-expertise").value = s.expertise || "";
+  IDENT_INPUTS.forEach(id => {
+    const el = $('#' + id);
+    if (!el) return;
+    el.disabled = true;
+    el.style.opacity = "0.65";
+    el.style.cursor = "not-allowed";
+  });
+
+  // Sensible refresh default: a 1-week window. The pipeline's metadata-merge
+  // fix means windowed refreshes don't clobber older video metadata anymore.
+  selectedWindow = "1w";
+  applyWindowUI();
+
+  // Show what we already have so the operator can pick a window confidently.
+  try {
+    const r = await fetch(`/api/source/${encodeURIComponent(s.id)}/latest_upload`);
+    if (r.ok) {
+      const { date, count } = await r.json();
+      if (date) {
+        const pretty = `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`;
+        $("#window-hint").innerHTML =
+          `Already indexed: <b>${count}</b> videos · latest upload <b>${pretty}</b>. ` +
+          `Anything older than the newest video on disk is skipped automatically.`;
+      }
+    }
+  } catch (e) { /* hint is best-effort */ }
+}
+
 function closeModal() { modal.style.display = "none"; }
 $("#add-source-btn").addEventListener("click", openModal);
 $("#close-modal").addEventListener("click", closeModal);

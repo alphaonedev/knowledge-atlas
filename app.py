@@ -1150,6 +1150,30 @@ def api_ingest_status(job_id):
     return jsonify(out)
 
 
+@app.route("/api/source/<sid>/latest_upload")
+def api_source_latest_upload(sid):
+    """Latest upload_date already on disk for this source's channel_metadata.json.
+
+    Used by the dashboard's Refresh modal: it shows the operator what we
+    already have, and is also a sane default lower-bound for a "since last
+    fetch" refresh. Returns {"date": "YYYYMMDD"} or {"date": null}.
+    """
+    meta_path = ROOT / "sources" / sid / "channel_metadata.json"
+    if not meta_path.exists():
+        return jsonify({"date": None, "count": 0})
+    try:
+        meta = json.loads(meta_path.read_text())
+    except Exception:
+        return jsonify({"date": None, "count": 0})
+    dates = [m.get("upload_date") for m in meta
+             if isinstance(m.get("upload_date"), str)
+             and len(m["upload_date"]) == 8 and m["upload_date"].isdigit()]
+    return jsonify({
+        "date": max(dates) if dates else None,
+        "count": len(meta),
+    })
+
+
 @app.route("/api/source/<sid>", methods=["DELETE"])
 def api_source_delete(sid):
     """Destructively remove a knowledge source. Requires ?confirm=true to actually
