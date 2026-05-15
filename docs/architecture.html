@@ -46,6 +46,7 @@
     <a href="#mcp-tools-reference" style="padding-left:24px;">↳ tools reference</a>
     <a href="#ingest">Self-serve ingest</a>
     <a href="#progress-protocol" style="padding-left:24px;">↳ progress protocol</a>
+    <a href="#viz-layer" style="padding-left:24px;">↳ live dashboard</a>
     <a href="#provider">LLM provider abstraction</a>
     <a href="#extensibility">Extensibility</a>
     <a href="#security">Security & privacy</a>
@@ -477,6 +478,43 @@ GET /api/ingest                                   → emits @@PROGRESS@@ events
       &ldquo;Streaming log&rdquo; panel for debugging &mdash; the progress events
       are an additive structured channel, not a replacement.
     </p>
+
+    <h3 id="viz-layer">Live dashboard &mdash; visualization layer</h3>
+    <p>
+      The web modal renders the structured progress data as
+      <b>inline-SVG charts, not text</b>. Each active phase shows its own
+      visualization panel above the foldable streaming log:
+    </p>
+    <h4 style="margin-top:18px;">Fetch phase</h4>
+    <ul>
+      <li>Animated cumulative counter: <code>&lt;done&gt; / &lt;total&gt;</code> transcripts processed.</li>
+      <li><b>Status donut chart</b> &mdash; segments for <code>fetched</code> / <code>cached</code> / <code>no_subs</code> / <code>failed</code>, scaling live as each video completes. Center number is the cumulative count. Pure inline SVG using <code>stroke-dasharray</code> math.</li>
+      <li>Throughput line: <code>&lt;rate&gt; videos/sec</code>, <code>&lt;workers&gt;</code> parallel workers, ETA.</li>
+      <li>Color-coded legend keyed to the donut segments.</li>
+    </ul>
+    <h4>Extract phase</h4>
+    <ul>
+      <li>Animated cumulative counter: cards extracted across all videos in this run.</li>
+      <li><b>Kind-distribution stacked horizontal bar</b> &mdash;
+        <span class="kind-pill kind-principle">principle</span>
+        <span class="kind-pill kind-tactic">tactic</span>
+        <span class="kind-pill kind-warning">warning</span>
+        <span class="kind-pill kind-framework">framework</span>
+        <span class="kind-pill kind-mental_model">mental model</span>
+        <span class="kind-pill kind-phrase">phrase</span>
+        <span class="kind-pill kind-quote">quote</span>.
+        Segments scale live as each video's cards arrive (the <code>kinds</code> field on every <code>item_done</code> event drives this). Segments &ge;5% width carry their label inline; smaller ones show just the count.</li>
+      <li>Sub-stats: <code>&lt;videos_done&gt; of &lt;total&gt; videos done</code> &middot; <code>&lt;provider&gt;/&lt;model&gt;</code> &middot; <code>avg &lt;cards/video&gt;</code>.</li>
+      <li><b>Cards-per-video sparkline</b> &mdash; inline SVG bars, one per recent item, normalized to the window max. Shows the last 15 completions as a quick visual signal of whether extraction quality is stable or trending.</li>
+      <li>Color legend below the bar with running counts per kind.</li>
+    </ul>
+
+    <h4>Implementation notes</h4>
+    <ul>
+      <li>All visualizations are <b>pure inline SVG + CSS</b>. No charting library, no CDN. Renders crisply on retina, works offline, respects the same kind-color palette used throughout the rest of the site.</li>
+      <li>Aggregation happens <b>server-side</b> in <code>_handle_progress_event()</code>. The phase state returned by <code>/api/ingest/status</code> already contains <code>cards_total</code>, <code>kinds_total</code> (<code>{kind: count}</code> dict), <code>recent_items</code> (last 20), <code>counts</code> (fetch breakdown), <code>rate</code>, and <code>eta_sec</code> &mdash; the browser doesn't need to maintain history of its own.</li>
+      <li>Raw subprocess stdout lives in a foldable <code>&lt;details&gt;</code> panel labeled &ldquo;Streaming log&rdquo; &mdash; there for debugging, not the default view. <code>@@PROGRESS@@</code> lines never appear in that panel (the parser consumes them silently).</li>
+    </ul>
 
     <h2 id="provider">LLM provider abstraction</h2>
     <p><code>extract_knowledge.py</code> is provider-agnostic by design:</p>

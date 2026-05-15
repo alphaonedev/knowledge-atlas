@@ -101,7 +101,14 @@ python3 atlas.py stop        # SIGTERM → grace period → SIGKILL fallback
 
 After `start`, open **http://127.0.0.1:5179/**. You'll see the indexed expert, the full card library, browse-by-kind / browse-by-topic navigation, and ⌘K full-text search.
 
-You can index more experts directly from the web UI — click **Index expert** in the header, paste a channel URL, watch the pipeline run live.
+You can index more experts directly from the web UI — click **Index expert** in the header, paste a channel URL, and watch a live phase-by-phase dashboard:
+
+- **List** → channel scan reports how many videos are present
+- **Fetch** → animated counter + status **donut chart** (fetched / cached / no_subs / failed) + throughput line + ETA
+- **Extract** → animated card counter + **kind-distribution stacked bar** (principle / tactic / warning / framework / mental_model / phrase / quote) that grows live as the LLM produces cards + cards-per-video sparkline + ETA
+- **Aggregate** → final summary (cards · videos · topics)
+
+All visualizations are inline SVG with no external dependencies. Raw subprocess output stays available in a foldable "Streaming log" panel for debugging.
 
 > **Manual mode (for development).** You can still run `python3 app.py` directly in the foreground if you prefer to see Flask's output inline — useful when iterating on the code. The CLI just wraps that with PID management + log capture + clean shutdown.
 

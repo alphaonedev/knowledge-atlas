@@ -367,6 +367,31 @@ Subprocesses (`fetch_channel.py`, `extract_knowledge.py`, `build_knowledge.py`) 
 
 Raw subprocess stdout is still kept verbatim in a foldable "Streaming log" panel for debugging — the progress events are an additive structured channel, not a replacement.
 
+### Live dashboard — visualization layer
+
+The web modal renders the structured progress data as **inline-SVG charts, not text**. Each active phase shows its own visualization panel above the foldable streaming log:
+
+**Fetch phase**
+
+- Animated cumulative counter: `<done> / <total>` transcripts processed
+- **Status donut chart** — segments for `fetched` / `cached` / `no_subs` / `failed`, scaling live as each video completes. Center number is the cumulative count. Pure inline SVG using `stroke-dasharray` math.
+- Throughput line: `<rate> videos/sec`, `<workers>` parallel workers, ETA
+- Color-coded legend keyed to the donut segments
+
+**Extract phase**
+
+- Animated cumulative counter: cards extracted across all videos in this run
+- **Kind-distribution stacked horizontal bar** — `principle` / `tactic` / `warning` / `framework` / `mental_model` / `phrase` / `quote`. Segments scale live as each video's cards arrive (the `kinds` field on every `item_done` event drives this). Segments ≥5% width carry their label inline; smaller ones show just the count.
+- Sub-stats: `<videos_done> of <total> videos done` · `<provider>/<model>` · `avg <cards/video>`
+- **Cards-per-video sparkline** — inline SVG bars, one per recent item, normalized to the window max. Shows the last 15 completions as a quick visual signal of whether extraction quality is stable or trending.
+- Color legend below the bar with running counts per kind
+
+### Implementation notes
+
+- All visualizations are **pure inline SVG + CSS**. No charting library, no CDN. Renders crisply on retina, works offline, respects the same kind-color palette (`--principle: #5b21b6`, `--tactic: #0e7a36`, etc.) used throughout the rest of the site.
+- The aggregation happens **server-side** in `_handle_progress_event()`. The phase state object that `/api/ingest/status` returns already contains `cards_total`, `kinds_total` (a `{kind: count}` dict), `recent_items` (last 20), `counts` (fetch breakdown), `rate`, and `eta_sec` — the browser doesn't need to maintain history of its own.
+- The raw subprocess stdout is preserved in a foldable `<details>` panel labeled "Streaming log" — there for debugging, not the default view. `@@PROGRESS@@ {...}` lines themselves never appear in that panel (the parser consumes them silently).
+
 ---
 
 ## LLM provider abstraction

@@ -119,6 +119,22 @@ python3 atlas.py logs        # tail data/atlas.log (-f to follow)
 python3 atlas.py restart     # stop then start
 python3 atlas.py stop        # SIGTERM → grace period → SIGKILL fallback</code></pre>
     <p>After <code>start</code>, open <a href="http://127.0.0.1:5179/">http://127.0.0.1:5179/</a>. ⌘K to search. Click <b>Index expert</b> in the header to add more sources without using the CLI.</p>
+    <p>The ingestion modal shows a <b>live phase-by-phase dashboard</b>:</p>
+    <ul>
+      <li><b>List</b> &mdash; channel scan reports how many videos are present.</li>
+      <li><b>Fetch</b> &mdash; animated counter + status <b>donut chart</b> (fetched / cached / no_subs / failed) + throughput + ETA.</li>
+      <li><b>Extract</b> &mdash; animated card counter + <b>kind-distribution stacked bar</b>
+        (<span class="kind-pill kind-principle">principle</span>
+        <span class="kind-pill kind-tactic">tactic</span>
+        <span class="kind-pill kind-warning">warning</span>
+        <span class="kind-pill kind-framework">framework</span>
+        <span class="kind-pill kind-mental_model">mental model</span>
+        <span class="kind-pill kind-phrase">phrase</span>
+        <span class="kind-pill kind-quote">quote</span>) that grows live as the LLM produces cards + cards-per-video sparkline + ETA.
+      </li>
+      <li><b>Aggregate</b> &mdash; final summary (cards &middot; videos &middot; topics).</li>
+    </ul>
+    <p>All visualizations are inline SVG with no external dependencies. Raw subprocess stdout stays available in a foldable &ldquo;Streaming log&rdquo; panel for debugging.</p>
     <blockquote>
       <b>Manual mode.</b> You can still run <code>python3 app.py</code> directly in the foreground for development; the CLI just wraps that with PID management, log capture, and clean shutdown.
     </blockquote>
