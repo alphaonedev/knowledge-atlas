@@ -127,6 +127,36 @@ def fts_clean(q):
     return " ".join(t for t in re.split(r"[^A-Za-z0-9]+", q or "") if t)
 
 
+# Generic, low-signal tokens that show up in nearly every card and drown
+# distinctive terms when expanded as OR-prefix wildcards. Dropping them
+# from the FTS rewriter dramatically reduces cross-source leakage on a
+# corpus dominated by one large source. Keep this list short and obvious —
+# only words that carry no domain signal of their own.
+FTS_STOPWORDS = frozenset({
+    "the", "and", "for", "with", "from", "this", "that", "these", "those",
+    "into", "onto", "your", "you", "are", "was", "were", "has", "have", "had",
+    "but", "not", "any", "all", "out", "off", "can", "will", "just", "now",
+    "new", "old", "more", "most", "much", "many", "less", "fewer",
+    "top", "best", "worst", "good", "bad", "high", "low",
+    "year", "years", "day", "days", "time", "times",
+    "report", "reports", "data", "info", "thing", "things",
+    "way", "ways", "use", "uses", "used", "using",
+    "make", "makes", "made", "get", "gets", "got",
+    "people", "person", "company", "companies",
+    "tax", "taxes", "price", "prices", "market", "markets",
+    "stock", "stocks", "money", "real", "estate",
+})
+
+
+def _toks_for_match(fq):
+    """Return distinctive >2-char tokens from a cleaned FTS query, with
+    common stopwords removed. Falls back to the full token list when the
+    stopword filter would otherwise leave the query empty."""
+    raw = [t for t in fq.split() if len(t) > 2]
+    filtered = [t for t in raw if t.lower() not in FTS_STOPWORDS]
+    return filtered or raw
+
+
 def hydrate_card(c):
     c["framework_steps"] = [
         r["step_content"] for r in rows(
@@ -197,7 +227,9 @@ async def list_tools() -> list[Tool]:
             description=(
                 "Full-text search across all knowledge cards (title, content, "
                 "reasoning, quotes). Returns paraphrased standalone cards with "
-                "citations. Use this for grounding answers to user questions."
+                "citations. Use this for grounding answers to user questions. "
+                "Pass `source_id` to scope the search to a single expert and "
+                "avoid leakage from larger sources in the corpus."
             ),
             inputSchema={
                 "type": "object",
@@ -205,6 +237,8 @@ async def list_tools() -> list[Tool]:
                     "query": {"type": "string", "description": "natural-language query"},
                     "kind": {"type": "string",
                              "description": "optional filter: principle, tactic, warning, framework, mental_model, phrase, quote"},
+                    "source_id": {"type": "string",
+                                  "description": "optional filter: restrict results to a single source (see list_sources)"},
                     "limit": {"type": "integer", "default": 15},
                 },
                 "required": ["query"],
@@ -216,12 +250,15 @@ async def list_tools() -> list[Tool]:
                 "Given a user question, return a teaching packet of knowledge "
                 "cards pre-ordered for explanation: principles → mental models "
                 "→ frameworks → tactics → phrases → warnings. Use this when the "
-                "user asks 'teach me X' or 'how do I Y'."
+                "user asks 'teach me X' or 'how do I Y'. Pass `source_id` to "
+                "scope the packet to a single expert."
             ),
             inputSchema={
                 "type": "object",
                 "properties": {
                     "question": {"type": "string"},
+                    "source_id": {"type": "string",
+                                  "description": "optional filter: restrict results to a single source (see list_sources)"},
                     "limit": {"type": "integer", "default": 20},
                 },
                 "required": ["question"],
@@ -479,13 +516,19 @@ def _list_categories():
 def _search_knowledge(args):
     q = args.get("query", "").strip()
     kind = args.get("kind")
+    source_id = (args.get("source_id") or "").strip() or None
     limit = min(int(args.get("limit", 15)), 100)
     fq = fts_clean(q)
     if not fq:
         return [TextContent(type="text", text="Empty query.")]
-    toks = [t for t in fq.split() if len(t) > 2]
+    toks = _toks_for_match(fq)
     if not toks:
         return [TextContent(type="text", text="Query too short.")]
+    if source_id and not one("SELECT id FROM sources WHERE id=?", (source_id,)):
+        return [TextContent(
+            type="text",
+            text=f"Unknown source_id `{source_id}`. Call `list_sources` to see valid ids.",
+        )]
     fq_match = " OR ".join(t + "*" for t in toks)
     sql = """
         SELECT c.id, c.kind, c.category, c.title, c.content, c.reasoning,
@@ -498,37 +541,57 @@ def _search_knowledge(args):
     params = [fq_match]
     if kind:
         sql += " AND c.kind = ?"; params.append(kind)
+    if source_id:
+        sql += " AND c.source_id = ?"; params.append(source_id)
     sql += " ORDER BY bm25(cards_fts) LIMIT ?"; params.append(limit)
     hits = [hydrate_card(c) for c in rows(sql, tuple(params))]
-    text = f"## Search · `{q}` · {len(hits)} cards\n\n" + fmt_card_list(hits, max_cards=limit)
+    scope = f" · source `{source_id}`" if source_id else ""
+    text = (
+        f"## Search · `{q}`{scope} · {len(hits)} cards\n\n"
+        + fmt_card_list(hits, max_cards=limit)
+    )
     return [TextContent(type="text", text=text)]
 
 
 def _teach_about(args):
     q = args.get("question", "").strip()
+    source_id = (args.get("source_id") or "").strip() or None
     limit = min(int(args.get("limit", 20)), 60)
     fq = fts_clean(q)
     if not fq:
         return [TextContent(type="text", text="Empty question.")]
-    toks = [t for t in fq.split() if len(t) > 2]
+    toks = _toks_for_match(fq)
     fq_match = " OR ".join(t + "*" for t in toks) if toks else fq
-    hits = [hydrate_card(c) for c in rows("""
+    if source_id and not one("SELECT id FROM sources WHERE id=?", (source_id,)):
+        return [TextContent(
+            type="text",
+            text=f"Unknown source_id `{source_id}`. Call `list_sources` to see valid ids.",
+        )]
+    sql = """
         SELECT c.id, c.kind, c.category, c.title, c.content, c.reasoning,
                c.source_quote, c.video_id, v.title AS video_title, v.url AS video_url
         FROM cards_fts f
         JOIN cards c ON c.id = f.card_id
         JOIN videos v ON v.id = c.video_id
         WHERE cards_fts MATCH ?
+    """
+    params = [fq_match]
+    if source_id:
+        sql += " AND c.source_id = ?"; params.append(source_id)
+    sql += """
         ORDER BY
           CASE c.kind WHEN 'principle' THEN 1 WHEN 'mental_model' THEN 2
                       WHEN 'framework' THEN 3 WHEN 'tactic' THEN 4
                       WHEN 'phrase' THEN 5 WHEN 'warning' THEN 6 ELSE 7 END,
           bm25(cards_fts)
         LIMIT ?
-    """, (fq_match, limit))]
+    """
+    params.append(limit)
+    hits = [hydrate_card(c) for c in rows(sql, tuple(params))]
     cats = sorted({c["category"] for c in hits})
+    scope = f" (source `{source_id}`)" if source_id else ""
     out = [
-        f"# Teaching packet — {q}",
+        f"# Teaching packet — {q}{scope}",
         "",
         f"*{len(hits)} cards across {len(cats)} topics. "
         f"Ordered for teaching: principles → models → frameworks → tactics → phrases → warnings.*",
@@ -569,7 +632,7 @@ def _cross_concept(args):
     fq = fts_clean(term)
     if not fq:
         return [TextContent(type="text", text="Empty term.")]
-    toks = [t for t in fq.split() if len(t) > 2]
+    toks = _toks_for_match(fq)
     fq_match = " OR ".join(t + "*" for t in toks) if toks else fq
     hits = [hydrate_card(c) for c in rows("""
         SELECT c.id, c.source_id, c.kind, c.category, c.title, c.content,
