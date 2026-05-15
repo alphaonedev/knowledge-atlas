@@ -1,16 +1,4 @@
 #!/usr/bin/env python3
-# Knowledge Atlas — Flask service tier — human dashboard and AI agent surfaces.
-# Copyright (c) 2026 AlphaOne LLC. All rights reserved.
-# Licensed under the Apache License, Version 2.0 (the "License").
-# You may not use this file except in compliance with the License.
-# A copy of the License is included with this distribution (LICENSE) and at:
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# SPDX-License-Identifier: Apache-2.0
-
 """
 app.py — localhost Flask server for the Knowledge Atlas.
 
@@ -965,6 +953,44 @@ def api_ingest_status(job_id):
         out = {k: v for k, v in j.items() if k != "proc"}
         out["log"] = (out.get("log") or [])[-40:]
     return jsonify(out)
+
+
+@app.route("/api/source/<sid>", methods=["DELETE"])
+def api_source_delete(sid):
+    """Destructively remove a knowledge source. Requires ?confirm=true to actually
+    delete. Without confirm, returns a plan showing what would be deleted.
+
+    What gets removed (when confirmed):
+      - the source's entry in sources.json
+      - the source's card JSON files in data/knowledge/<vid>.json
+      - the entire sources/<sid>/ directory (transcripts, raw_srt, metadata)
+      - the unified knowledge.db is rebuilt
+    """
+    confirm = request.args.get("confirm", "").lower() in ("1", "true", "yes")
+    try:
+        import remove_source as rs
+    except ImportError:
+        return jsonify({"error": "remove_source module not available"}), 500
+
+    plan = rs.plan_removal(sid)
+    if not plan["in_registry"] and not plan["source_dir_exists"] and not plan["card_files"]:
+        return jsonify({"error": f"source '{sid}' not found", "plan": plan}), 404
+
+    if not confirm:
+        # Return what WOULD happen, no destruction
+        return jsonify({
+            "status": "dry-run",
+            "message": "Add ?confirm=true to actually delete this source.",
+            "plan": plan,
+        })
+
+    # Execute removal
+    log_lines = []
+    def log(msg):
+        log_lines.append(str(msg))
+    result = rs.remove(sid, dry_run=False, rebuild=True, log=log)
+    result["log"] = log_lines
+    return jsonify(result)
 
 
 @app.route("/api/ingest/cancel/<job_id>", methods=["POST"])

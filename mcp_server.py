@@ -1,16 +1,4 @@
 #!/usr/bin/env python3
-# Knowledge Atlas — Model Context Protocol server — exposes the atlas as tools to MCP clients.
-# Copyright (c) 2026 AlphaOne LLC. All rights reserved.
-# Licensed under the Apache License, Version 2.0 (the "License").
-# You may not use this file except in compliance with the License.
-# A copy of the License is included with this distribution (LICENSE) and at:
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# SPDX-License-Identifier: Apache-2.0
-
 """
 mcp_server.py — Model Context Protocol server for the Knowledge Atlas.
 
@@ -42,7 +30,14 @@ See HOW_TO_CONNECT.md for client config.
 import asyncio
 import json
 import re
+import socket
 import sqlite3
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +47,63 @@ from mcp.types import Tool, TextContent
 
 ROOT = Path(__file__).resolve().parent
 DB_PATH = ROOT / "data" / "knowledge.db"
+FLASK_URL = "http://127.0.0.1:5179"
+FLASK_PORT = 5179
+
+
+# ---------- Flask service helpers (used by the add/remove/cancel tools) -----
+
+def _port_open():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(0.4)
+    try:
+        s.connect(("127.0.0.1", FLASK_PORT))
+        return True
+    except (ConnectionRefusedError, socket.timeout, OSError):
+        return False
+    finally:
+        s.close()
+
+
+def _ensure_flask(timeout=20):
+    """If Flask isn't running, start it via atlas.py and wait for the port."""
+    if _port_open():
+        return True
+    try:
+        subprocess.Popen(
+            [sys.executable, str(ROOT / "atlas.py"), "start"],
+            cwd=str(ROOT),
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception:
+        return False
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _port_open():
+            return True
+        time.sleep(0.4)
+    return False
+
+
+def _http_json(method, path, body=None, timeout=10):
+    url = FLASK_URL + path
+    data = None
+    headers = {"Accept": "application/json"}
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read())
+        except Exception:
+            return e.code, {"error": str(e)}
+    except Exception as e:
+        return 0, {"error": str(e)}
 
 
 def conn():
@@ -245,6 +297,86 @@ async def list_tools() -> list[Tool]:
                 },
             },
         ),
+        # -------- Write/management tools (mutate the atlas) -----------------
+        Tool(
+            name="add_source",
+            description=(
+                "Index a new knowledge source (YouTube channel). Runs the full "
+                "pipeline: register → fetch transcripts → LLM-extract knowledge "
+                "cards → rebuild atlas. Returns a job_id; poll with "
+                "`ingest_status`. Use the `window` parameter to limit to recent "
+                "videos (cheap incremental updates). Auto-starts the Flask "
+                "service if not running."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "url":       {"type": "string",
+                                  "description": "YouTube channel URL (e.g. https://www.youtube.com/@channel)"},
+                    "source_id": {"type": "string",
+                                  "description": "stable slug for this source (auto-derived from URL if omitted)"},
+                    "name":      {"type": "string", "description": "display name"},
+                    "domain":    {"type": "string", "description": "one-line domain description"},
+                    "expertise": {"type": "string", "description": "what the expert is known for"},
+                    "window":    {"type": "string",
+                                  "enum": ["1d", "1w", "1m", "3m", "6m", "1y", "all"],
+                                  "description": "time window for fetched videos (default 'all')"},
+                    "since":     {"type": "string",
+                                  "description": "absolute YYYYMMDD lower bound (overrides window)"},
+                    "until":     {"type": "string",
+                                  "description": "absolute YYYYMMDD upper bound"},
+                    "provider":  {"type": "string", "enum": ["xai", "anthropic"],
+                                  "description": "LLM provider (default: auto)"},
+                    "model":     {"type": "string",
+                                  "description": "model id (default: provider's default)"},
+                },
+                "required": ["url"],
+            },
+        ),
+        Tool(
+            name="ingest_status",
+            description=(
+                "Check the status of an in-flight ingestion job. Returns "
+                "step, percent, latest log lines, and terminal status "
+                "(running | done | error | cancelled | awaiting_extraction)."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {"job_id": {"type": "string"}},
+                "required": ["job_id"],
+            },
+        ),
+        Tool(
+            name="cancel_ingest",
+            description=(
+                "Cleanly stop a running ingestion job. Partial work is "
+                "preserved on disk; the next add_source for the same source "
+                "resumes idempotently from where this one stopped."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {"job_id": {"type": "string"}},
+                "required": ["job_id"],
+            },
+        ),
+        Tool(
+            name="remove_source",
+            description=(
+                "Destructively remove a knowledge source: deletes its entry "
+                "in sources.json, its transcripts, its card files, and "
+                "rebuilds the atlas. IRREVERSIBLE. Call once with confirm=false "
+                "to see a plan, then again with confirm=true to execute."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "source_id": {"type": "string"},
+                    "confirm":   {"type": "boolean",
+                                  "description": "must be true to actually delete (default false → dry-run)"},
+                },
+                "required": ["source_id"],
+            },
+        ),
     ]
 
 
@@ -270,6 +402,14 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         return _get_card(arguments)
     if name == "list_videos":
         return _list_videos(arguments)
+    if name == "add_source":
+        return _add_source(arguments)
+    if name == "ingest_status":
+        return _ingest_status(arguments)
+    if name == "cancel_ingest":
+        return _cancel_ingest(arguments)
+    if name == "remove_source":
+        return _remove_source(arguments)
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
 
@@ -491,6 +631,142 @@ def _get_card(args):
         return [TextContent(type="text", text=f"No card with id {cid}.")]
     hydrate_card(c)
     return [TextContent(type="text", text=fmt_card(c))]
+
+
+def _add_source(args):
+    """Kick off an ingestion job by POSTing to Flask's /api/ingest. Returns
+    job_id + presentation hint. Auto-starts Flask if it's not already up."""
+    if not args.get("url"):
+        return [TextContent(type="text", text="**url** is required.")]
+    if not _ensure_flask():
+        return [TextContent(type="text",
+                text="✗ Could not reach or start the Flask service on port 5179. "
+                     "Run `python3 atlas.py start` manually and try again.")]
+    payload = {
+        "url": args["url"],
+        "source_id": args.get("source_id"),
+        "name": args.get("name"),
+        "domain": args.get("domain"),
+        "expertise": args.get("expertise"),
+        "window": args.get("window") or "all",
+        "since": args.get("since"),
+        "until": args.get("until"),
+        "provider": args.get("provider"),
+        "model": args.get("model"),
+        "save_api_key": True,
+    }
+    payload = {k: v for k, v in payload.items() if v is not None}
+    code, body = _http_json("POST", "/api/ingest", body=payload, timeout=15)
+    if code != 200:
+        return [TextContent(type="text",
+                text=f"✗ ingest start failed (HTTP {code}): {body.get('error', body)}")]
+    job_id = body.get("job_id")
+    out = [
+        f"# Ingestion started",
+        f"",
+        f"- **job_id**: `{job_id}`",
+        f"- **url**: {args['url']}",
+        f"- **window**: {args.get('window') or 'all'}",
+        f"- **provider**: {args.get('provider') or 'auto-detect'}",
+        f"",
+        f"Poll progress with the `ingest_status` tool, e.g. ingest_status job_id='{job_id}'.",
+        f"To stop early: cancel_ingest job_id='{job_id}' (partial work is preserved).",
+    ]
+    return [TextContent(type="text", text="\n".join(out))]
+
+
+def _ingest_status(args):
+    job_id = args.get("job_id")
+    if not job_id:
+        return [TextContent(type="text", text="**job_id** is required.")]
+    if not _ensure_flask():
+        return [TextContent(type="text",
+                text="✗ Flask not reachable; job state lives in its memory.")]
+    code, body = _http_json("GET", f"/api/ingest/status/{job_id}", timeout=5)
+    if code != 200:
+        return [TextContent(type="text",
+                text=f"✗ status fetch failed (HTTP {code}): {body.get('error', body)}")]
+    out = [
+        f"# Ingestion `{job_id}`",
+        f"",
+        f"- **status**:  `{body.get('status', '?')}`",
+        f"- **step**:    {body.get('step', '?')}",
+        f"- **percent**: {body.get('percent', 0)}%",
+        f"- **message**: {body.get('message', '')}",
+    ]
+    if body.get("source_id"):
+        out.append(f"- **source_id**: {body['source_id']}")
+    out.append("")
+    log = body.get("log") or []
+    if log:
+        out.append("## Latest log")
+        out.append("```")
+        for line in log[-20:]:
+            out.append(line)
+        out.append("```")
+    return [TextContent(type="text", text="\n".join(out))]
+
+
+def _cancel_ingest(args):
+    job_id = args.get("job_id")
+    if not job_id:
+        return [TextContent(type="text", text="**job_id** is required.")]
+    if not _ensure_flask():
+        return [TextContent(type="text", text="✗ Flask not reachable.")]
+    code, body = _http_json("POST", f"/api/ingest/cancel/{job_id}", timeout=10)
+    if code != 200:
+        return [TextContent(type="text",
+                text=f"✗ cancel failed (HTTP {code}): {body.get('error', body)}")]
+    note = body.get("note", "")
+    status = body.get("status", "cancelling")
+    msg = f"Job `{job_id}`: **{status}**"
+    if note:
+        msg += f"\n\n> {note}"
+    msg += "\n\nPartial work is preserved on disk. The next add_source for the same source resumes idempotently."
+    return [TextContent(type="text", text=msg)]
+
+
+def _remove_source(args):
+    sid = args.get("source_id")
+    if not sid:
+        return [TextContent(type="text", text="**source_id** is required.")]
+    confirm = bool(args.get("confirm", False))
+    if not _ensure_flask():
+        return [TextContent(type="text", text="✗ Flask not reachable.")]
+    # DELETE /api/source/<sid>?confirm=true|false
+    suffix = "?confirm=true" if confirm else ""
+    code, body = _http_json("DELETE", f"/api/source/{urllib.parse.quote(sid)}{suffix}",
+                            timeout=120)
+    if code == 404:
+        return [TextContent(type="text",
+                text=f"✗ Source `{sid}` not found.")]
+    if code != 200:
+        return [TextContent(type="text",
+                text=f"✗ remove failed (HTTP {code}): {body.get('error', body)}")]
+    if not confirm:
+        plan = body.get("plan", {})
+        out = [
+            f"# Dry-run: would remove `{sid}`",
+            f"",
+            f"- in registry:      {'yes' if plan.get('in_registry') else 'no'}",
+            f"- source directory: `{plan.get('source_dir')}` "
+                f"({'exists' if plan.get('source_dir_exists') else 'absent'})",
+            f"- videos in source: {len(plan.get('video_ids', []))}",
+            f"- card JSON files:  {len(plan.get('card_files', []))}",
+            f"- transcripts:      {plan.get('transcript_count', 0)}",
+            f"- raw .srt files:   {plan.get('raw_srt_count', 0)}",
+            f"",
+            f"**This is irreversible.** Call again with `confirm: true` to actually delete.",
+        ]
+        return [TextContent(type="text", text="\n".join(out))]
+    # Confirmed: report what was done
+    actions = body.get("actions") or []
+    out = [f"# ✓ Removed source `{sid}`", ""]
+    for a in actions:
+        out.append(f"- {a}")
+    out.append("")
+    out.append("Atlas rebuilt. Cross-source endpoints reflect the new state.")
+    return [TextContent(type="text", text="\n".join(out))]
 
 
 def _list_videos(args):

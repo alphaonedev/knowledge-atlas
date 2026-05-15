@@ -1,14 +1,6 @@
-<!--
-  Knowledge Atlas
-  Copyright (c) 2026 AlphaOne LLC. All rights reserved.
-  Licensed under the Apache License, Version 2.0. See LICENSE for full terms.
-  SPDX-License-Identifier: Apache-2.0
--->
 <!doctype html>
 <html lang="en">
 <head>
-<meta name="copyright" content="© 2026 AlphaOne LLC. All rights reserved.">
-<meta name="license" content="Apache-2.0">
 <meta charset="utf-8" />
 <title>Knowledge Atlas</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -828,10 +820,15 @@ async function renderSources() {
       <div class="meta">${sources.length} expert${sources.length === 1 ? "" : "s"} · each contributes paraphrased knowledge cards to the same atlas</div>
     </div>
     ` + sources.map(s => `
-      <article class="card">
+      <article class="card" data-source-id="${escapeHtml(s.id)}">
         <div class="card-meta">
           <span class="category-tag">${escapeHtml(s.kind || "source")}</span>
           <span class="muted" style="font-size:12px;">${s.videos} videos · ${s.cards} cards · ${s.categories} topics</span>
+          <button class="remove-source-btn" data-source-id="${escapeHtml(s.id)}" data-source-name="${escapeHtml(s.name || s.id)}"
+                  data-videos="${s.videos}" data-cards="${s.cards}"
+                  style="margin-left:auto; background:transparent; color:var(--warning); border:1px solid var(--warning-bd, #f3bcbc); padding:4px 10px; border-radius:6px; cursor:pointer; font:600 11px inherit;">
+            Remove
+          </button>
         </div>
         <h3 class="card-title">${escapeHtml(s.name || s.id)}</h3>
         ${s.expertise ? `<div class="card-content">${escapeHtml(s.expertise)}</div>` : ""}
@@ -848,6 +845,47 @@ async function renderSources() {
         </div>
       </article>
     `;
+
+  // Wire up Remove buttons
+  $$('.remove-source-btn').forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const sid = btn.dataset.sourceId;
+      const name = btn.dataset.sourceName;
+      const videos = btn.dataset.videos;
+      const cards = btn.dataset.cards;
+      const typed = prompt(
+        `Permanently remove "${name}"?\n\n` +
+        `This deletes ${videos} videos and ${cards} knowledge cards from disk\n` +
+        `and rebuilds the atlas. THIS IS IRREVERSIBLE.\n\n` +
+        `Type the source id to confirm:`,
+        ""
+      );
+      if (typed === null) return;
+      if (typed !== sid) {
+        alert("Confirmation did not match. Source not removed.");
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = "Removing…";
+      try {
+        const r = await fetch("/api/source/" + encodeURIComponent(sid) + "?confirm=true",
+          { method: "DELETE" });
+        const data = await r.json();
+        if (!r.ok || data.status !== "removed") {
+          alert("Removal failed: " + (data.error || data.status));
+          btn.disabled = false;
+          btn.textContent = "Remove";
+          return;
+        }
+        location.reload();
+      } catch (err) {
+        alert("Removal error: " + err.message);
+        btn.disabled = false;
+        btn.textContent = "Remove";
+      }
+    });
+  });
 }
 
 async function renderCoverage() {
