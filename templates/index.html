@@ -1416,21 +1416,34 @@ function renderFetchViz(p) {
   const total = p.total || 0;
   const rate = p.rate || 0;
 
+  // Human-readable explanations for each bucket — surfaced as hover tooltips
+  // so labels like "no_subs" stop being mystery jargon. The underlying API
+  // field names stay the same; this is purely a display layer.
+  const TIPS = {
+    fetched: "Successfully downloaded a transcript for this video.",
+    cached:  "Transcript was already on disk from a previous run; no network call needed.",
+    skipped: "yt-dlp couldn't get a transcript. Most common cause: the video falls "
+           + "outside your time window (--dateafter / --datebefore filter). "
+           + "Other reasons: no English captions available, video is private / "
+           + "age-restricted / removed, or captions are in another language only.",
+    failed:  "All retry attempts failed (network error, yt-dlp crash, etc.). "
+           + "Re-running the ingestion will retry idempotently.",
+  };
+
   const parts = [
     {label: "fetched", value: fetched, color: KIND_COLOR.tactic},
     {label: "cached",  value: cached,  color: "#3b82f6"},
-    {label: "no_subs", value: noSubs,  color: KIND_COLOR.unknown},
+    {label: "skipped", value: noSubs,  color: KIND_COLOR.unknown},
     {label: "failed",  value: failed,  color: KIND_COLOR.warning},
   ];
   const donut = renderDonut(parts, done || 1);
-  const recent = (p.recent_items || []).slice(-15);
-  const recentBars = recent.map(r => {
-    const c = (r.status === "fetched") ? KIND_COLOR.tactic
-            : (r.status === "cached")  ? "#3b82f6"
-            : (r.status === "failed")  ? KIND_COLOR.warning
-            : KIND_COLOR.unknown;
-    return `<rect x="0" width="100%" height="6" fill="${c}" rx="1"/>`;
-  });
+
+  // Helper to render one legend row with title-tooltip
+  const row = (color, label, value, tip) =>
+    `<div title="${escapeHtml(tip)}" style="cursor:help;">
+       <span class="kind-legend-dot" style="background:${color}"></span>${label}
+       <b>${value}</b>
+     </div>`;
 
   return `
     <div class="viz-panel">
@@ -1447,13 +1460,24 @@ function renderFetchViz(p) {
         <div class="donut-wrap">
           ${donut}
           <div class="donut-legend">
-            <div><span class="kind-legend-dot" style="background:${KIND_COLOR.tactic}"></span>fetched      <b>${fetched}</b></div>
-            ${cached  ? `<div><span class="kind-legend-dot" style="background:#3b82f6"></span>cached       <b>${cached}</b></div>` : ""}
-            <div><span class="kind-legend-dot" style="background:${KIND_COLOR.unknown}"></span>no_subs      <b>${noSubs}</b></div>
-            ${failed  ? `<div><span class="kind-legend-dot" style="background:${KIND_COLOR.warning}"></span>failed       <b>${failed}</b></div>` : ""}
+            ${row(KIND_COLOR.tactic,  "fetched",  fetched, TIPS.fetched)}
+            ${cached ? row("#3b82f6", "cached",   cached,  TIPS.cached) : ""}
+            ${row(KIND_COLOR.unknown, "skipped",  noSubs,  TIPS.skipped)}
+            ${failed ? row(KIND_COLOR.warning, "failed", failed, TIPS.failed) : ""}
           </div>
         </div>
       </div>
+      ${noSubs > 0 ? `
+        <div style="margin-top:14px; padding:10px 14px; background:var(--bg-tint);
+                    border-radius:8px; font-size:12px; color:var(--text-soft);
+                    border-left:3px solid var(--muted-2);">
+          <b style="color:var(--text)">Why are videos being skipped?</b>
+          Most are filtered out by your <b>time window</b> (yt-dlp refuses to
+          download subs for videos outside the date range you set). Others
+          have no English captions, are restricted, or were deleted. Hover any
+          legend item for details.
+        </div>
+      ` : ""}
     </div>
   `;
 }
@@ -1482,9 +1506,10 @@ function renderPhaseSummary(s) {
       // Compose a phase-specific summary line
       if (meta.id === "fetch") {
         countText = `✓ ${p.summary.fetched || 0} fetched`
-                  + (p.summary.cached ? `, ${p.summary.cached} cached` : "")
+                  + (p.summary.cached  ? `, ${p.summary.cached} cached` : "")
                   + (p.summary.no_subs ? `, ${p.summary.no_subs} skipped` : "")
-                  + (p.summary.failed ? `, ${p.summary.failed} failed` : "");
+                  + (p.summary.failed  ? `, ${p.summary.failed} failed` : "");
+        // Note: 'no_subs' is the raw API field; we display it as 'skipped'.
       } else if (meta.id === "extract") {
         countText = `${p.summary.cards || 0} cards · ${p.summary.videos || 0} videos`;
       } else if (meta.id === "aggregate") {
