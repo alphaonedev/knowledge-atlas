@@ -1565,11 +1565,18 @@ function renderPhaseSummary(s) {
     if (status === "done" && p.summary) {
       // Compose a phase-specific summary line
       if (meta.id === "fetch") {
-        countText = `✓ ${p.summary.fetched || 0} fetched`
-                  + (p.summary.cached  ? `, ${p.summary.cached} cached` : "")
-                  + (p.summary.no_subs ? `, ${p.summary.no_subs} skipped` : "")
-                  + (p.summary.failed  ? `, ${p.summary.failed} failed` : "");
-        // Note: 'no_subs' is the raw API field; we display it as 'skipped'.
+        // Suppress zero-count buckets so an all-cached run doesn't read as
+        // "✓ 0 fetched, N cached" — that looks like a failure. Show only the
+        // buckets that actually have something. Note: 'no_subs' is the raw
+        // API field; we display it as 'skipped'.
+        const parts = [];
+        if (p.summary.fetched) parts.push(`${p.summary.fetched} fetched`);
+        if (p.summary.cached)  parts.push(`${p.summary.cached} cached`);
+        if (p.summary.no_subs) parts.push(`${p.summary.no_subs} skipped`);
+        if (p.summary.failed)  parts.push(`${p.summary.failed} failed`);
+        countText = parts.length
+          ? `✓ ${parts.join(", ")}`
+          : "✓ no videos in window";
       } else if (meta.id === "extract") {
         countText = `${p.summary.cards || 0} cards · ${p.summary.videos || 0} videos`;
       } else if (meta.id === "aggregate") {
