@@ -121,9 +121,31 @@ python3 atlas.py stop        # SIGTERM → grace period → SIGKILL fallback</co
     </blockquote>
 
     <h3 style="margin-top:24px;">Optional · macOS menu-bar / Windows system-tray icon</h3>
-    <p>For a GUI affordance, there's a cross-platform tray app:</p>
-    <pre><code>pip install pystray pillow
-python3 atlas_tray.py</code></pre>
+    <p>For a GUI affordance, there's a cross-platform tray app. First install the optional deps:</p>
+    <pre><code>pip install pystray pillow</code></pre>
+
+    <h4 style="margin-top:18px;">Two ways to run</h4>
+    <table>
+      <thead><tr><th>Command</th><th>Behavior</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>python3 atlas_tray.py --install</code><br><span class="muted">recommended</span></td>
+          <td>Installs a macOS LaunchAgent (or Windows Startup entry), launches the icon, and returns immediately. The icon stays in the menu bar across terminal closures, log-outs, and reboots. If it crashes, launchd restarts it within seconds.</td>
+        </tr>
+        <tr>
+          <td><code>python3 atlas_tray.py</code><br><span class="muted">foreground</span></td>
+          <td>Runs in your terminal. Ctrl-C or closing the terminal kills it. Useful for trying it without committing to a system install.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h4>Lifecycle commands</h4>
+    <pre><code>python3 atlas_tray.py --install     # install + start as a system service
+python3 atlas_tray.py --status      # plist installed? launchctl loaded? PID?
+python3 atlas_tray.py --restart     # reload the LaunchAgent
+python3 atlas_tray.py --uninstall   # cleanly remove the persistent install</code></pre>
+
+    <h4>What you get</h4>
     <ul>
       <li><b>macOS:</b> an "A" icon appears in your menu bar — click for the menu.</li>
       <li><b>Windows:</b> the same icon appears in your system tray — right-click for the menu.</li>
@@ -132,9 +154,12 @@ python3 atlas_tray.py</code></pre>
       <li>Polls atlas state every 3s; macOS notifications fire on state changes.</li>
       <li><b>Quit tray</b> only quits the menu-bar app — it does <b>not</b> stop the atlas service.</li>
     </ul>
-    <blockquote>
-      <b>Run on login.</b> On macOS, create a LaunchAgent plist in <code>~/Library/LaunchAgents/</code> that runs <code>python3 /path/to/atlas_tray.py</code>. On Windows, drop a shortcut into <code>shell:startup</code>.
-    </blockquote>
+
+    <h4>How persistence works under the hood</h4>
+    <ul>
+      <li><b>macOS:</b> writes <code>~/Library/LaunchAgents/com.alphaone.knowledge-atlas-tray.plist</code> with <code>RunAtLoad=true</code> and <code>KeepAlive=true</code>, then runs <code>launchctl load -w</code>. The tray process becomes a child of launchd (PID 1) — independent of any terminal session. Logs go to <code>data/atlas-tray.log</code> and <code>data/atlas-tray.err.log</code>.</li>
+      <li><b>Windows:</b> drops a <code>.bat</code> shortcut into <code>%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\KnowledgeAtlasTray.bat</code> that runs <code>pythonw.exe</code> (silent — no console window). Launched immediately and again at every login.</li>
+    </ul>
 
     <h2 id="desktop">6. Wire in Claude Desktop</h2>
     <p>Edit <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS):</p>

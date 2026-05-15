@@ -104,14 +104,30 @@ You can index more experts directly from the web UI — click **Index expert** i
 
 ### Optional: menu-bar / system-tray icon
 
-For users who prefer a GUI affordance over the CLI, there's a cross-platform tray app:
+For users who prefer a GUI affordance over the CLI, there's a cross-platform tray app.
 
 ```bash
 pip install pystray pillow      # one-time install of the optional deps
-python3 atlas_tray.py           # launches the icon
 ```
 
-What you get:
+#### Two ways to run
+
+| | Command | Behavior |
+|---|---|---|
+| **Persistent install (recommended)** | `python3 atlas_tray.py --install` | Installs a macOS LaunchAgent (or Windows Startup entry), launches the icon, and returns immediately. The icon stays in the menu bar across terminal closures, log-outs, and reboots. If it ever crashes, launchd restarts it within seconds. |
+| **Foreground (development / one-off)** | `python3 atlas_tray.py` | Runs the icon in your terminal. Ctrl-C or closing the terminal kills it. Useful for quickly trying it without committing to a system-level install. |
+
+#### Lifecycle commands
+
+```bash
+python3 atlas_tray.py --install     # install + start as a system service
+python3 atlas_tray.py --status      # plist installed? launchctl loaded? PID?
+python3 atlas_tray.py --restart     # reload the LaunchAgent
+python3 atlas_tray.py --uninstall   # cleanly remove the persistent install
+python3 atlas_tray.py               # foreground (no flags) — Ctrl-C to quit
+```
+
+#### What you get
 
 - **macOS:** an "A" icon appears in your menu bar (top-right). Click it for the menu.
 - **Windows:** the same icon appears in your system tray (bottom-right). Right-click for the menu.
@@ -121,14 +137,17 @@ What you get:
   - **amber** = transitional (starting / stopping)
 - **Menu items:** Start · Restart · Stop · Open dashboard · View logs · Reveal data folder · Copy status · Quit tray
 - Auto-polls atlas state every 3 seconds; menu items grey out when not applicable
-- macOS native notifications fire when state changes (Start/Stop/Restart success or failure)
+- macOS native notifications fire when state changes
 - "Quit tray" only quits the menu-bar app — it does **not** stop the atlas service
 
-The tray app calls `atlas.py start|stop|restart` under the hood, so it shares the same PID file, log file, and behavior as the CLI. You can mix and match: start from the tray, stop from the CLI, or vice versa.
+#### How persistence works under the hood
 
-> **Run on login.** To have the tray auto-start when you log in:
-> - **macOS:** create a LaunchAgent plist in `~/Library/LaunchAgents/` that runs `python3 /path/to/atlas_tray.py`
-> - **Windows:** drop a shortcut to `python3 atlas_tray.py` (or a `.bat` wrapper) into `shell:startup`
+- **macOS:** writes `~/Library/LaunchAgents/com.alphaone.knowledge-atlas-tray.plist` with `RunAtLoad=true` + `KeepAlive=true`, then `launchctl load -w`. The tray process becomes a child of launchd (PID 1), so it's independent of any terminal session. Logs go to `data/atlas-tray.log` and `data/atlas-tray.err.log`.
+- **Windows:** drops a `.bat` shortcut into `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\KnowledgeAtlasTray.bat` that runs `pythonw.exe` (silent — no console window). Launched immediately and again at every login.
+
+#### Uninstall
+
+`python3 atlas_tray.py --uninstall` removes the LaunchAgent / Startup entry cleanly. The icon disappears within seconds.
 
 ## 6. Wire in Claude Desktop (recommended for chat-style use)
 

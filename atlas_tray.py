@@ -15,30 +15,45 @@
 atlas_tray.py — cross-platform menu-bar / system-tray app for the
 Knowledge Atlas service.
 
-Shows a colored icon in the menu bar (macOS) or system tray (Windows):
-  · green = running
-  · red   = stopped
-  · amber = transitional (starting/stopping)
+USAGE
 
-Right-click (or click on macOS) for a menu of actions:
-  · Start / Restart / Stop
-  · Open dashboard           → http://127.0.0.1:5179/ in browser
-  · View logs                → opens data/atlas.log
-  · Reveal in Finder/Explorer
-  · Status (live atlas content stats)
-  · Quit tray                (does NOT stop the atlas service)
+  python3 atlas_tray.py             Run in foreground (Ctrl-C to quit).
+                                    Icon disappears when the terminal closes.
 
-The atlas service is launched by spawning `atlas.py start` as a subprocess,
-so this app reuses the exact same lifecycle logic, PID file, and log file
-as the CLI. You can mix-and-match: start from the tray, stop from the CLI.
+  python3 atlas_tray.py --install   PERSISTENT: install a LaunchAgent (macOS)
+                                    or Startup shortcut (Windows). Icon
+                                    appears on every login and is restarted
+                                    if it ever dies. Command returns
+                                    immediately.
 
-Dependencies:
+  python3 atlas_tray.py --uninstall Remove the persistent install.
+
+  python3 atlas_tray.py --status    Show whether the persistent service is
+                                    installed and currently running.
+
+  python3 atlas_tray.py --restart   Reload the persistent service.
+
+ICON
+  Shows a colored 'A' icon in the menu bar (macOS) or system tray (Windows):
+    · green = running
+    · red   = stopped
+    · amber = transitional (starting/stopping)
+
+MENU
+  Right-click (or click on macOS) for:
+    · Start / Restart / Stop
+    · Open dashboard           → http://127.0.0.1:5179/ in browser
+    · View logs                → opens data/atlas.log
+    · Reveal in Finder/Explorer
+    · Copy status
+    · Quit tray                (does NOT stop the atlas service)
+
+DEPENDENCIES
     pip install pystray pillow
-
-Usage:
-    python3 atlas_tray.py
 """
 
+import argparse
+import os
 import platform
 import subprocess
 import sys
@@ -67,7 +82,6 @@ PLATFORM = platform.system()  # "Darwin" / "Windows" / "Linux"
 
 # ---------- shared helpers (mirror atlas.py logic, no import to keep it light) -
 
-import os
 import socket
 
 
@@ -398,10 +412,254 @@ def _build_menu():
 
 # ---------- main -------------------------------------------------------------
 
-def main():
+# ============================================================================
+# Persistent install — macOS LaunchAgent / Windows Startup folder
+# ============================================================================
+
+LAUNCH_AGENT_LABEL = "com.alphaone.knowledge-atlas-tray"
+LAUNCH_AGENT_PATH = Path.home() / "Library/LaunchAgents" / f"{LAUNCH_AGENT_LABEL}.plist"
+WINDOWS_STARTUP_FILENAME = "KnowledgeAtlasTray.bat"
+
+
+def _launch_agent_plist():
+    """Generate the LaunchAgent plist XML for this Python interpreter + script."""
+    python_path = sys.executable
+    script_path = str(Path(__file__).resolve())
+    cwd = str(Path(__file__).resolve().parent)
+    log_out = str(Path(cwd) / "data" / "atlas-tray.log")
+    log_err = str(Path(cwd) / "data" / "atlas-tray.err.log")
+    # Ensure log directory exists
+    (Path(cwd) / "data").mkdir(exist_ok=True)
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>            <string>{LAUNCH_AGENT_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{python_path}</string>
+        <string>{script_path}</string>
+    </array>
+    <key>WorkingDirectory</key> <string>{cwd}</string>
+    <key>RunAtLoad</key>        <true/>
+    <key>KeepAlive</key>        <true/>
+    <key>ProcessType</key>      <string>Interactive</string>
+    <key>StandardOutPath</key>  <string>{log_out}</string>
+    <key>StandardErrorPath</key><string>{log_err}</string>
+</dict>
+</plist>
+"""
+
+
+def _launchctl(*args):
+    """Run launchctl and return (rc, output)."""
+    try:
+        proc = subprocess.run(["launchctl", *args],
+                              capture_output=True, text=True, timeout=10)
+        return proc.returncode, (proc.stdout + proc.stderr).strip()
+    except Exception as e:
+        return 1, str(e)
+
+
+def _agent_loaded():
+    """Returns True if launchd knows about our agent."""
+    rc, out = _launchctl("list", LAUNCH_AGENT_LABEL)
+    return rc == 0
+
+
+def cmd_install():
+    """Install + start the persistent service for the current platform."""
+    if PLATFORM == "Darwin":
+        return _install_macos()
+    if PLATFORM == "Windows":
+        return _install_windows()
+    print(f"--install is supported only on macOS and Windows (got {PLATFORM}).",
+          file=sys.stderr)
+    return 1
+
+
+def _install_macos():
+    # Kill any currently-running foreground tray instance first
+    foreground_pids = _find_foreground_tray_pids()
+    if foreground_pids:
+        print(f"Stopping {len(foreground_pids)} foreground tray instance(s)…")
+        for p in foreground_pids:
+            try:
+                os.kill(p, signal.SIGTERM)
+            except (ProcessLookupError, OSError):
+                pass
+
+    LAUNCH_AGENT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    LAUNCH_AGENT_PATH.write_text(_launch_agent_plist())
+    print(f"Wrote LaunchAgent: {LAUNCH_AGENT_PATH}")
+
+    # Unload first if it's already loaded (idempotent re-install)
+    if _agent_loaded():
+        _launchctl("unload", "-w", str(LAUNCH_AGENT_PATH))
+        time.sleep(0.5)
+
+    rc, out = _launchctl("load", "-w", str(LAUNCH_AGENT_PATH))
+    if rc != 0:
+        print(f"✗ launchctl load failed: {out}", file=sys.stderr)
+        return 1
+
+    # Wait a beat for launchd to spawn it
+    time.sleep(1.5)
+    if _agent_loaded():
+        print(f"✓ Knowledge Atlas tray installed and started.")
+        print(f"  · runs as user LaunchAgent: {LAUNCH_AGENT_LABEL}")
+        print(f"  · auto-starts on login")
+        print(f"  · auto-restarts if it crashes (KeepAlive)")
+        print(f"  · logs:  data/atlas-tray.log  +  data/atlas-tray.err.log")
+        print(f"")
+        print(f"To remove: python3 atlas_tray.py --uninstall")
+        return 0
+    print(f"⚠ Installed plist but agent didn't appear in launchctl list.")
+    return 1
+
+
+def _install_windows():
+    """Drop a .bat shortcut into the user's Startup folder."""
+    startup = Path(os.environ.get("APPDATA", "")) / \
+              "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+    if not startup.exists():
+        print(f"✗ Startup folder not found at {startup}", file=sys.stderr)
+        return 1
+    target = startup / WINDOWS_STARTUP_FILENAME
+    pythonw = sys.executable.replace("python.exe", "pythonw.exe")
+    if not Path(pythonw).exists():
+        pythonw = sys.executable  # fall back; will flash a console window
+    script_path = str(Path(__file__).resolve())
+    target.write_text(
+        f'@echo off\r\nstart "" "{pythonw}" "{script_path}"\r\n'
+    )
+    print(f"✓ Knowledge Atlas tray installed:")
+    print(f"  · {target}")
+    print(f"  · runs at every login (Startup folder)")
+    # Launch it now
+    subprocess.Popen([pythonw, script_path],
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     close_fds=True)
+    print(f"  · launched in background now")
+    return 0
+
+
+def cmd_uninstall():
+    if PLATFORM == "Darwin":
+        return _uninstall_macos()
+    if PLATFORM == "Windows":
+        return _uninstall_windows()
+    print(f"--uninstall is supported only on macOS and Windows.", file=sys.stderr)
+    return 1
+
+
+def _uninstall_macos():
+    if not LAUNCH_AGENT_PATH.exists() and not _agent_loaded():
+        print("Not installed.")
+        return 0
+    if _agent_loaded():
+        _launchctl("unload", "-w", str(LAUNCH_AGENT_PATH))
+    LAUNCH_AGENT_PATH.unlink(missing_ok=True)
+    print(f"✓ Uninstalled LaunchAgent {LAUNCH_AGENT_LABEL}.")
+    return 0
+
+
+def _uninstall_windows():
+    startup = Path(os.environ.get("APPDATA", "")) / \
+              "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+    target = startup / WINDOWS_STARTUP_FILENAME
+    if target.exists():
+        target.unlink()
+        print(f"✓ Removed {target}")
+        return 0
+    print("Not installed.")
+    return 0
+
+
+def cmd_status():
+    if PLATFORM == "Darwin":
+        installed = LAUNCH_AGENT_PATH.exists()
+        loaded = _agent_loaded()
+        print(f"Platform:     macOS")
+        print(f"Plist file:   {'✓ ' + str(LAUNCH_AGENT_PATH) if installed else '✗ not installed'}")
+        print(f"launchctl:    {'✓ loaded as ' + LAUNCH_AGENT_LABEL if loaded else '✗ not loaded'}")
+        # Also report PIDs
+        pids = _find_tray_pids()
+        if pids:
+            print(f"Running PIDs: {', '.join(map(str, pids))}")
+        else:
+            print(f"Running PIDs: (none)")
+        return 0 if loaded else 1
+    if PLATFORM == "Windows":
+        startup = Path(os.environ.get("APPDATA", "")) / \
+                  "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+        target = startup / WINDOWS_STARTUP_FILENAME
+        installed = target.exists()
+        print(f"Platform:     Windows")
+        print(f"Startup file: {'✓ ' + str(target) if installed else '✗ not installed'}")
+        return 0 if installed else 1
+    print(f"Status check not supported on {PLATFORM}.", file=sys.stderr)
+    return 1
+
+
+def cmd_restart_agent():
+    if PLATFORM != "Darwin":
+        print("--restart is currently macOS-only.", file=sys.stderr)
+        return 1
+    if not LAUNCH_AGENT_PATH.exists():
+        print("Not installed. Run --install first.")
+        return 1
+    _launchctl("unload", str(LAUNCH_AGENT_PATH))
+    time.sleep(0.5)
+    rc, out = _launchctl("load", "-w", str(LAUNCH_AGENT_PATH))
+    if rc == 0:
+        print("✓ Tray service restarted.")
+        return 0
+    print(f"✗ Reload failed: {out}", file=sys.stderr)
+    return 1
+
+
+def _find_tray_pids():
+    """Find all PIDs running this script (any mode)."""
+    try:
+        proc = subprocess.run(["pgrep", "-f", "atlas_tray.py"],
+                              capture_output=True, text=True, timeout=3)
+        if proc.returncode != 0:
+            return []
+        my_pid = os.getpid()
+        return [int(p) for p in proc.stdout.split()
+                if p.isdigit() and int(p) != my_pid]
+    except Exception:
+        return []
+
+
+def _find_foreground_tray_pids():
+    """Best-effort: PIDs of foreground tray instances (not the LaunchAgent one).
+    We can't reliably distinguish, so we return all current PIDs minus ours; the
+    LaunchAgent (if loaded) will simply be restarted by launchd."""
+    return _find_tray_pids()
+
+
+# ============================================================================
+# Foreground run
+# ============================================================================
+
+import signal  # already used by _install_macos via os.kill — keep for that path
+
+
+def run_foreground():
     if not ATLAS_CLI.exists():
         print(f"ERROR: {ATLAS_CLI} not found.", file=sys.stderr)
         sys.exit(1)
+
+    print("Knowledge Atlas tray — running in foreground.")
+    print("  · icon appears in your menu bar (macOS) / system tray (Windows)")
+    print("  · Ctrl-C here will close it; closing this terminal will too")
+    print("")
+    print("For a persistent install that survives terminal close + reboots:")
+    print("    python3 atlas_tray.py --install")
+    print("")
 
     _ensure_icons()
     _state["running"] = _atlas_running()
@@ -422,5 +680,33 @@ def main():
     icon.run()
 
 
+def main():
+    ap = argparse.ArgumentParser(
+        description="Cross-platform menu-bar / system-tray controller for "
+                    "the Knowledge Atlas service.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__.split("USAGE")[1].split("ICON")[0].rstrip(),
+    )
+    g = ap.add_mutually_exclusive_group()
+    g.add_argument("--install",   action="store_true",
+                   help="Install persistently (macOS LaunchAgent / Windows Startup).")
+    g.add_argument("--uninstall", action="store_true",
+                   help="Remove the persistent install.")
+    g.add_argument("--status",    action="store_true",
+                   help="Show whether the persistent service is installed and running.")
+    g.add_argument("--restart",   action="store_true",
+                   help="Reload the LaunchAgent (macOS only).")
+    args = ap.parse_args()
+
+    if args.install:   return cmd_install()
+    if args.uninstall: return cmd_uninstall()
+    if args.status:    return cmd_status()
+    if args.restart:   return cmd_restart_agent()
+
+    # No flag → foreground run
+    run_foreground()
+    return 0
+
+
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
