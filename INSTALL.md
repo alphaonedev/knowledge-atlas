@@ -102,6 +102,34 @@ You can index more experts directly from the web UI — click **Index expert** i
 
 > **Manual mode (for development).** You can still run `python3 app.py` directly in the foreground if you prefer to see Flask's output inline — useful when iterating on the code. The CLI just wraps that with PID management + log capture + clean shutdown.
 
+### Optional: menu-bar / system-tray icon
+
+For users who prefer a GUI affordance over the CLI, there's a cross-platform tray app:
+
+```bash
+pip install pystray pillow      # one-time install of the optional deps
+python3 atlas_tray.py           # launches the icon
+```
+
+What you get:
+
+- **macOS:** an "A" icon appears in your menu bar (top-right). Click it for the menu.
+- **Windows:** the same icon appears in your system tray (bottom-right). Right-click for the menu.
+- **Icon color** reflects state in real time:
+  - **green** = atlas is running
+  - **red** = atlas is stopped
+  - **amber** = transitional (starting / stopping)
+- **Menu items:** Start · Restart · Stop · Open dashboard · View logs · Reveal data folder · Copy status · Quit tray
+- Auto-polls atlas state every 3 seconds; menu items grey out when not applicable
+- macOS native notifications fire when state changes (Start/Stop/Restart success or failure)
+- "Quit tray" only quits the menu-bar app — it does **not** stop the atlas service
+
+The tray app calls `atlas.py start|stop|restart` under the hood, so it shares the same PID file, log file, and behavior as the CLI. You can mix and match: start from the tray, stop from the CLI, or vice versa.
+
+> **Run on login.** To have the tray auto-start when you log in:
+> - **macOS:** create a LaunchAgent plist in `~/Library/LaunchAgents/` that runs `python3 /path/to/atlas_tray.py`
+> - **Windows:** drop a shortcut to `python3 atlas_tray.py` (or a `.bat` wrapper) into `shell:startup`
+
 ## 6. Wire in Claude Desktop (recommended for chat-style use)
 
 Add this to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):

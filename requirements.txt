@@ -13,3 +13,9 @@ mcp>=1.0
 scikit-learn>=1.4   # only used by the legacy build_db.py (optional)
 numpy>=1.26
 pandas>=2.0
+
+# Optional: menu-bar / system-tray controller (atlas_tray.py)
+# Only needed if you want the start/stop/restart/status icon in macOS menu bar
+# or Windows system tray. Skip these if you only use the atlas.py CLI.
+pystray>=0.19
+pillow>=10.0

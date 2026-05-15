@@ -83,6 +83,11 @@ python3 atlas.py status      # PID, uptime, port, atlas content stats
 python3 atlas.py logs        # tail the server log (-f to follow)
 python3 atlas.py restart     # stop and start
 python3 atlas.py stop        # clean shutdown
+
+# Optional: macOS menu-bar / Windows system-tray icon
+# (requires pip install pystray pillow)
+python3 atlas_tray.py        # adds an 'A' icon to the menu bar / system tray
+                             # with Start / Restart / Stop / Open dashboard
 ```
 
 See [INSTALL.md](INSTALL.md) for full setup, [ARCHITECTURE.md](ARCHITECTURE.md) for the system design, and [HOW_TO_CONNECT.md](HOW_TO_CONNECT.md) to wire Claude Desktop / Claude Code into the atlas via MCP.

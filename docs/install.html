@@ -120,6 +120,22 @@ python3 atlas.py stop        # SIGTERM → grace period → SIGKILL fallback</co
       <b>Manual mode.</b> You can still run <code>python3 app.py</code> directly in the foreground for development; the CLI just wraps that with PID management, log capture, and clean shutdown.
     </blockquote>
 
+    <h3 style="margin-top:24px;">Optional · macOS menu-bar / Windows system-tray icon</h3>
+    <p>For a GUI affordance, there's a cross-platform tray app:</p>
+    <pre><code>pip install pystray pillow
+python3 atlas_tray.py</code></pre>
+    <ul>
+      <li><b>macOS:</b> an "A" icon appears in your menu bar — click for the menu.</li>
+      <li><b>Windows:</b> the same icon appears in your system tray — right-click for the menu.</li>
+      <li><b>Icon color</b> reflects state in real time: <b style="color:#0d8a3c">green</b> = running, <b style="color:#b51c1c">red</b> = stopped, <b style="color:#a26800">amber</b> = transitional.</li>
+      <li><b>Menu:</b> Start · Restart · Stop · Open dashboard · View logs · Reveal data folder · Copy status · Quit tray.</li>
+      <li>Polls atlas state every 3s; macOS notifications fire on state changes.</li>
+      <li><b>Quit tray</b> only quits the menu-bar app — it does <b>not</b> stop the atlas service.</li>
+    </ul>
+    <blockquote>
+      <b>Run on login.</b> On macOS, create a LaunchAgent plist in <code>~/Library/LaunchAgents/</code> that runs <code>python3 /path/to/atlas_tray.py</code>. On Windows, drop a shortcut into <code>shell:startup</code>.
+    </blockquote>
+
     <h2 id="desktop">6. Wire in Claude Desktop</h2>
     <p>Edit <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS):</p>
     <pre><code>{
