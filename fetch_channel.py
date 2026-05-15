@@ -93,15 +93,46 @@ _tag_re = re.compile(r"<[^>]+>")
 _dup_re = re.compile(r"\s+")
 
 
-def list_videos(channel_url):
-    """Return list of dicts with id, title, upload_date, duration, view_count, etc."""
-    cmd = [
-        "yt-dlp",
-        "--flat-playlist",
-        "--dump-json",
-        "--ignore-errors",
-        channel_url,
-    ]
+def list_videos(channel_url, since=None, until=None):
+    """Enumerate videos on a channel.
+
+    Two modes:
+      1. No date window (since/until both None) → use --flat-playlist for
+         cheap, fast enumeration of the whole channel. upload_date is NOT
+         returned for each video in this mode (yt-dlp doesn't fetch it),
+         which is fine because we're going to look at every video anyway.
+
+      2. Date window active → use a full-metadata fetch with --match-filter
+         on upload_date AND --break-match-filters. YouTube returns channel
+         videos newest-first, so yt-dlp stops enumerating the moment it hits
+         the first video older than `since`. For a channel with 1000+ videos
+         where only ~5 fall in the window, this typically does ~6 metadata
+         fetches instead of 1000+.
+    """
+    if since or until:
+        match_clauses = []
+        if since:
+            match_clauses.append(f"upload_date>={since}")
+        if until:
+            match_clauses.append(f"upload_date<={until}")
+        match_expr = " & ".join(match_clauses)
+        cmd = [
+            "yt-dlp",
+            "--dump-json",
+            "--ignore-errors",
+            # Stop enumeration when we hit the first out-of-window video.
+            # YouTube returns newest-first by default, so this is correct.
+            "--break-match-filters", match_expr,
+            channel_url,
+        ]
+    else:
+        cmd = [
+            "yt-dlp",
+            "--flat-playlist",
+            "--dump-json",
+            "--ignore-errors",
+            channel_url,
+        ]
     out = subprocess.run(cmd, capture_output=True, text=True, check=False)
     videos = []
     for line in out.stdout.splitlines():
@@ -331,12 +362,20 @@ def main():
     raw_dir.mkdir(parents=True, exist_ok=True)
     txt_dir.mkdir(parents=True, exist_ok=True)
 
-    _emit_progress("phase_start", phase="list", message=f"Listing videos from {args.url}")
+    _emit_progress("phase_start", phase="list",
+                   message=f"Listing videos from {args.url}"
+                          + (f" (window pre-filter: since={since}, until={until or '-'})" if (since or until) else ""))
     print(f"[1/3] Listing videos from {args.url} (source: {args.source})")
-    videos = list_videos(args.url)
-    print(f"      Found {len(videos)} videos.")
+    if since or until:
+        print(f"      Using yt-dlp --break-match-filters with upload_date filter "
+              f"(since={since or '-'}, until={until or '-'}) — enumeration stops "
+              f"early at first out-of-window video.")
+    videos = list_videos(args.url, since=since, until=until)
+    print(f"      Found {len(videos)} videos"
+          + (" in window." if (since or until) else "."))
     _emit_progress("phase_done", phase="list",
-                   summary={"videos_in_channel": len(videos)})
+                   summary={"videos_in_channel": len(videos),
+                            "window_pre_filtered": bool(since or until)})
 
     # Resume scan: how many of these are already on disk and valid?
     valid_ids = {p.stem for p in txt_dir.glob("*.txt")
