@@ -823,6 +823,7 @@ async function renderSources() {
       <article class="card" data-source-id="${escapeHtml(s.id)}">
         <div class="card-meta">
           <span class="category-tag">${escapeHtml(s.kind || "source")}</span>
+          <span class="category-tag" style="font-family:var(--font-mono);">id: ${escapeHtml(s.id)}</span>
           <span class="muted" style="font-size:12px;">${s.videos} videos · ${s.cards} cards · ${s.categories} topics</span>
           <button class="remove-source-btn" data-source-id="${escapeHtml(s.id)}" data-source-name="${escapeHtml(s.name || s.id)}"
                   data-videos="${s.videos}" data-cards="${s.cards}"
@@ -858,12 +859,13 @@ async function renderSources() {
         `Permanently remove "${name}"?\n\n` +
         `This deletes ${videos} videos and ${cards} knowledge cards from disk\n` +
         `and rebuilds the atlas. THIS IS IRREVERSIBLE.\n\n` +
-        `Type the source id to confirm:`,
+        `To confirm, type this exact source id:\n\n` +
+        `    ${sid}`,
         ""
       );
       if (typed === null) return;
-      if (typed !== sid) {
-        alert("Confirmation did not match. Source not removed.");
+      if (typed.trim() !== sid) {
+        alert(`Confirmation did not match.\n\nYou typed: "${typed}"\nExpected:  "${sid}"\n\nSource was NOT removed.`);
         return;
       }
       btn.disabled = true;

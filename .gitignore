@@ -20,6 +20,12 @@ data/atlas.pid
 data/atlas.log
 data/atlas.log.*
 
+# --- Per-maintainer private red-team patterns ---
+# Each maintainer maintains their own list of private handles / emails / paths
+# that must never appear in a public commit. Keeping this file local prevents
+# the patterns themselves from leaking what each instance has indexed.
+.red_team_local.txt
+
 # --- Static assets generated at build time ---
 static/charts/
 
