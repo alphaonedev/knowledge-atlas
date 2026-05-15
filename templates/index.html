@@ -704,9 +704,14 @@
         .kind-bar-seg {
           display:flex; align-items:center; justify-content:center; gap:5px;
           font: 600 11px var(--font-sans); color: white;
-          padding: 0 8px; transition: width 0.4s;
+          padding: 0 5px; transition: width 0.4s;
           text-shadow: 0 1px 1px rgba(0,0,0,0.2);
-          white-space: nowrap; overflow: hidden; min-width: 0;
+          white-space: nowrap; overflow: hidden;
+          /* Minimum visual width so tiny kinds (e.g. "quote" at <1%) are
+             still readable. Steals a small amount of width from larger
+             segments via flex; the legend below the bar always carries
+             the exact counts so no information is lost. */
+          min-width: 30px; flex-shrink: 1;
         }
         .kind-bar-seg .kind-bar-label {
           overflow: hidden; text-overflow: ellipsis; min-width: 0;
@@ -1617,6 +1622,7 @@ const KIND_COLOR = {
 // "ental model"). Keep the map in sync with kind colors above.
 const KIND_BAR_SHORT_LABEL = {
   mental_model: "model",
+  framework:    "frame",  // "framework" plus a 3-digit count overflows narrow slices
 };
 function kindBarLabel(k) {
   return KIND_BAR_SHORT_LABEL[k] || k.replace("_", " ");
