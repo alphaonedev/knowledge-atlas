@@ -256,14 +256,16 @@ def api_kinds():
 
 @app.route("/api/cards")
 def api_cards():
-    """Filterable card list. ?kind=&category=&video=&limit="""
+    """Filterable card list. ?kind=&category=&video=&source_id=&limit="""
     kind = request.args.get("kind")
     category = request.args.get("category")
     video = request.args.get("video")
+    source_id = request.args.get("source_id")
     limit = min(int(request.args.get("limit", 500)), 2000)
     sql = """
       SELECT c.id, c.kind, c.category, c.title, c.content, c.reasoning,
-             c.source_quote, c.video_id, v.title AS video_title, v.url AS video_url
+             c.source_quote, c.video_id, c.source_id,
+             v.title AS video_title, v.url AS video_url
       FROM cards c JOIN videos v ON v.id = c.video_id
       WHERE 1=1
     """
@@ -274,6 +276,8 @@ def api_cards():
         sql += " AND c.category = ?"; params.append(category)
     if video:
         sql += " AND c.video_id = ?"; params.append(video)
+    if source_id:
+        sql += " AND c.source_id = ?"; params.append(source_id)
     sql += " ORDER BY c.category, c.kind, c.title LIMIT ?"
     params.append(limit)
     out = rows(sql, tuple(params))
@@ -305,12 +309,18 @@ def api_card(cid):
 
 @app.route("/api/videos")
 def api_videos():
-    return jsonify(rows("""
-        SELECT v.id, v.title, v.url, v.one_line, v.best_for,
+    """All videos with card counts. Pass ?source_id=<sid> to filter."""
+    source_id = request.args.get("source_id")
+    sql = """
+        SELECT v.id, v.title, v.url, v.one_line, v.best_for, v.source_id,
                (SELECT COUNT(*) FROM cards WHERE video_id = v.id) AS card_count
         FROM videos v
-        ORDER BY card_count DESC, v.title
-    """))
+    """
+    params = ()
+    if source_id:
+        sql += " WHERE v.source_id = ?"; params = (source_id,)
+    sql += " ORDER BY card_count DESC, v.title"
+    return jsonify(rows(sql, params))
 
 
 @app.route("/api/video/<vid>")
@@ -633,6 +643,36 @@ def ai_sources():
             "SELECT COUNT(DISTINCT category) AS n FROM cards WHERE source_id=?", (sid,))["n"]
         out.append(s)
     return jsonify(out)
+
+
+@app.route("/ai/source/<sid>")
+def ai_source_detail(sid):
+    """Source-detail packet for the dashboard's source-detail page.
+
+    Returns the source's registry row plus scoped stats: video count, card
+    count, topic count, kind breakdown, and the top categories. The
+    template uses this to render a one-source-only view with its own
+    kind-distribution bar and categories sidebar.
+    """
+    s = one("SELECT * FROM sources WHERE id=?", (sid,))
+    if not s:
+        abort(404)
+    s["videos"] = one(
+        "SELECT COUNT(*) AS n FROM videos WHERE source_id=?", (sid,))["n"]
+    s["cards"] = one(
+        "SELECT COUNT(*) AS n FROM cards WHERE source_id=?", (sid,))["n"]
+    s["categories"] = one(
+        "SELECT COUNT(DISTINCT category) AS n FROM cards WHERE source_id=?",
+        (sid,))["n"]
+    s["kinds"] = rows("""
+        SELECT kind, COUNT(*) AS cards FROM cards
+        WHERE source_id = ? GROUP BY kind ORDER BY cards DESC
+    """, (sid,))
+    s["top_categories"] = rows("""
+        SELECT category, COUNT(*) AS cards FROM cards
+        WHERE source_id = ? GROUP BY category ORDER BY cards DESC, category
+    """, (sid,))
+    return jsonify(s)
 
 
 @app.route("/ai/cross/coverage")
