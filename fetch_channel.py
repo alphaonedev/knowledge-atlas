@@ -29,6 +29,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 ROOT = Path(__file__).resolve().parent
 PREF_LANGS = ["en", "en-US", "en-GB"]
 
+# Invoke yt-dlp through the interpreter that's running us, so the lookup
+# doesn't depend on PATH. The ingest pipeline is spawned by the MCP server
+# under Claude Desktop's LaunchAgent, whose PATH is /usr/bin:/bin:/usr/sbin:/sbin
+# — bin dirs like /opt/anaconda3/bin and /opt/homebrew/bin are absent, so a
+# bare "yt-dlp" would resolve to nothing and crash with FileNotFoundError.
+YT_DLP = [sys.executable, "-m", "yt_dlp"]
+
 WINDOW_PRESETS = {
     "1d":  datetime.timedelta(days=1),
     "1w":  datetime.timedelta(weeks=1),
@@ -116,8 +123,7 @@ def list_videos(channel_url, since=None, until=None):
         if until:
             match_clauses.append(f"upload_date<={until}")
         match_expr = " & ".join(match_clauses)
-        cmd = [
-            "yt-dlp",
+        cmd = YT_DLP + [
             "--dump-json",
             "--ignore-errors",
             # Stop enumeration when we hit the first out-of-window video.
@@ -126,8 +132,7 @@ def list_videos(channel_url, since=None, until=None):
             channel_url,
         ]
     else:
-        cmd = [
-            "yt-dlp",
+        cmd = YT_DLP + [
             "--flat-playlist",
             "--dump-json",
             "--ignore-errors",
@@ -157,7 +162,7 @@ def list_videos(channel_url, since=None, until=None):
 
 def enrich_metadata(video_id):
     """Get richer metadata for a single video (upload_date, view_count, etc.)."""
-    cmd = ["yt-dlp", "--skip-download", "--dump-json", f"https://www.youtube.com/watch?v={video_id}"]
+    cmd = YT_DLP + ["--skip-download", "--dump-json", f"https://www.youtube.com/watch?v={video_id}"]
     out = subprocess.run(cmd, capture_output=True, text=True, check=False)
     try:
         return json.loads(out.stdout)
@@ -171,8 +176,8 @@ def download_subs(video_id, raw_dir, since=None, until=None):
     url = f"https://www.youtube.com/watch?v={video_id}"
     outtmpl = str(raw_dir / f"{video_id}.%(ext)s")
 
-    base = [
-        "yt-dlp", url,
+    base = YT_DLP + [
+        url,
         "--skip-download",
         "--sub-format", "srt",
         "--sub-lang", ",".join(PREF_LANGS),
