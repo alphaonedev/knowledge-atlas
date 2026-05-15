@@ -350,6 +350,51 @@ def _fts_clean(q):
     return " ".join(t for t in _re.split(r"[^A-Za-z0-9]+", q or "") if t)
 
 
+def _fts_match_with_fallback(fq, *, min_hits=1):
+    """Build an FTS5 MATCH expression. Strict-AND only for multi-token queries.
+
+    The legacy expansion `tok1* OR tok2* OR ...` returned a flood of false
+    positives on multi-word names. Searching "Marc Benioff" matched every
+    card containing "March" or "Marketing" because each token was OR'd as
+    an independent prefix wildcard.
+
+    Policy:
+      Multi-token (>=2 distinctive tokens):
+        Tier A: `tok1 AND tok2 AND ...`      — exact tokens, all required
+        Tier B: `tok1* AND tok2* AND ...`    — prefix wildcards, all required
+                                               (typo / morphology tolerant)
+        If both tiers return < min_hits, return None (an honest "no results")
+        rather than degrading to OR — false positives are worse than empty.
+
+      Single token:
+        Just `tok*` — prefix wildcard. No OR semantics needed; if you typed
+        one word we honor it.
+
+    The COUNT(*) probe is cheap on FTS5 and only runs until one tier passes.
+    Returns the MATCH expression to use, or None if no tier yielded hits.
+    """
+    toks = [t for t in (fq or "").split() if len(t) > 2]
+    if not toks:
+        return None
+    if len(toks) == 1:
+        return toks[0] + "*"
+    candidates = [
+        " AND ".join(toks),
+        " AND ".join(t + "*" for t in toks),
+    ]
+    for expr in candidates:
+        try:
+            n = one(
+                "SELECT COUNT(*) AS n FROM cards_fts WHERE cards_fts MATCH ?",
+                (expr,),
+            )
+        except Exception:
+            continue
+        if n and n.get("n", 0) >= min_hits:
+            return expr
+    return None  # no tier matched — honest empty rather than misleading OR
+
+
 @app.route("/api/search")
 def api_search():
     q = request.args.get("q", "").strip()
@@ -359,10 +404,9 @@ def api_search():
     fq = _fts_clean(q)
     if not fq:
         return jsonify([])
-    toks = [t for t in fq.split() if len(t) > 2]
-    if not toks:
+    fq_match = _fts_match_with_fallback(fq)
+    if not fq_match:
         return jsonify([])
-    fq_match = " OR ".join(t + "*" for t in toks)
     hits = rows("""
         SELECT f.card_id AS id, c.kind, c.category, c.title, c.content,
                c.reasoning, c.source_quote, c.video_id,
@@ -585,8 +629,9 @@ def ai_teach():
     fq = _fts_clean(q)
     if not fq:
         return jsonify({"question": q, "cards": [], "presentation_hint": ""})
-    toks = [t for t in fq.split() if len(t) > 2]
-    fq_match = " OR ".join(t + "*" for t in toks) if toks else fq
+    fq_match = _fts_match_with_fallback(fq)
+    if not fq_match:
+        return jsonify({"question": q, "cards": [], "presentation_hint": ""})
     hits = rows("""
         SELECT f.card_id AS id, c.kind, c.category, c.title, c.content,
                c.reasoning, c.source_quote, c.video_id,
@@ -705,8 +750,9 @@ def ai_cross_concept(term):
     fq = _fts_clean(term)
     if not fq:
         return jsonify({"term": term, "by_source": []})
-    toks = [t for t in fq.split() if len(t) > 2]
-    fq_match = " OR ".join(t + "*" for t in toks) if toks else fq
+    fq_match = _fts_match_with_fallback(fq)
+    if not fq_match:
+        return jsonify({"term": term, "by_source": []})
     hits = rows("""
         SELECT c.id, c.source_id, c.kind, c.category, c.title, c.content,
                c.reasoning, c.video_id,
