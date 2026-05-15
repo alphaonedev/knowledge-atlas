@@ -141,7 +141,7 @@ def main():
     print( "      Hand the schema + each transcript to your AI of choice and have")
     print( "      it write data/knowledge/<video_id>.json files. Or run:")
     print(f"          python3 extract_knowledge.py --source {args.id}")
-    print( "      (auto-detects xAI / Anthropic API keys from env or .env)")
+    print( "      (auto-detects xAI / Anthropic / OpenAI API keys from env or .env)")
     print()
     print( "      Once cards exist, rebuild the unified atlas:")
     print(f"          python3 build_knowledge.py")

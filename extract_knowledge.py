@@ -2,10 +2,13 @@
 """
 extract_knowledge.py — extract knowledge cards from un-processed transcripts.
 
-Supports two LLM providers (auto-detected from env, overridable):
-  - xai        → uses XAI_API_KEY; default model: grok-4.20-0309-reasoning
-                 (OpenAI-compatible API at https://api.x.ai/v1)
-  - anthropic  → uses ANTHROPIC_API_KEY; default model: claude-sonnet-4-5
+Supports three LLM providers (auto-detected from env, overridable):
+  - xai        → uses XAI_API_KEY        (default model: grok-4.20-0309-reasoning)
+                 OpenAI-compatible API at https://api.x.ai/v1
+  - anthropic  → uses ANTHROPIC_API_KEY  (default model: claude-sonnet-4-5)
+                 native Anthropic SDK
+  - openai     → uses OPENAI_API_KEY     (default model: gpt-5)
+                 official OpenAI API at https://api.openai.com/v1
 
 Reads:
   data/knowledge/SCHEMA.md            (extraction contract)
@@ -18,7 +21,7 @@ Writes:
 
 API-key resolution (in order):
   1. --api-key flag
-  2. provider-specific env var (XAI_API_KEY / ANTHROPIC_API_KEY)
+  2. provider-specific env var
   3. ~/.env file        (your global key store)
   4. ./.env file        (project-local key store)
 """
@@ -41,7 +44,11 @@ DEFAULTS = {
                   "env": "XAI_API_KEY"},
     "anthropic": {"model": "claude-sonnet-4-5",        "base_url": None,
                   "env": "ANTHROPIC_API_KEY"},
+    "openai":    {"model": "gpt-5",                    "base_url": None,
+                  "env": "OPENAI_API_KEY"},
 }
+# Providers that use the OpenAI Python SDK (chat.completions.create).
+OPENAI_COMPATIBLE = {"xai", "openai"}
 MAX_TOKENS = 4096
 
 
@@ -65,11 +72,15 @@ def resolve(provider, cli_key):
 
 
 def auto_provider():
+    """Pick a provider based on which keys are present. Preference order:
+    xAI → Anthropic → OpenAI. Users can override with --provider."""
     load_env()
     if os.environ.get("XAI_API_KEY"):
         return "xai"
     if os.environ.get("ANTHROPIC_API_KEY"):
         return "anthropic"
+    if os.environ.get("OPENAI_API_KEY"):
+        return "openai"
     return None
 
 
@@ -185,13 +196,14 @@ def _extract_json(text):
         return json.loads(m.group(0))
 
 
-def call_xai(client, model, schema, video, transcript):
+def call_openai_compatible(client, model, schema, video, transcript):
+    """Used for both OpenAI (api.openai.com) and xAI (api.x.ai/v1). Both
+    speak the OpenAI Chat Completions wire format via the openai SDK."""
     sys_prompt = SYSTEM_TEMPLATE.format(schema=schema)
     usr = USER_TEMPLATE.format(
         vid=video["id"], title=video["title"], url=video["url"],
         transcript=transcript,
     )
-    # xAI is OpenAI-compatible; ask for json_object response format when supported
     kwargs = dict(
         model=model,
         max_tokens=MAX_TOKENS,
@@ -202,10 +214,13 @@ def call_xai(client, model, schema, video, transcript):
         ],
     )
     try:
+        # Both providers support JSON-object response format on most models.
         resp = client.chat.completions.create(
             response_format={"type": "json_object"}, **kwargs)
     except Exception:
-        # response_format isn't supported on every Grok model; fall back without it
+        # Some Grok models (and certain frozen OpenAI snapshots) reject
+        # response_format. Fall back without it; our _extract_json() handles
+        # the case where the model emits prose-wrapped JSON.
         resp = client.chat.completions.create(**kwargs)
     return resp.choices[0].message.content
 
@@ -229,9 +244,14 @@ def call_anthropic(client, model, schema, video, transcript):
 
 
 def make_client(provider, api_key):
-    if provider == "xai":
+    if provider in OPENAI_COMPATIBLE:
         from openai import OpenAI
-        return OpenAI(api_key=api_key, base_url=DEFAULTS["xai"]["base_url"])
+        base = DEFAULTS[provider].get("base_url")
+        # OpenAI: base_url=None → SDK defaults to api.openai.com.
+        # xAI:    base_url=https://api.x.ai/v1
+        if base:
+            return OpenAI(api_key=api_key, base_url=base)
+        return OpenAI(api_key=api_key)
     if provider == "anthropic":
         from anthropic import Anthropic
         return Anthropic(api_key=api_key)
@@ -240,8 +260,8 @@ def make_client(provider, api_key):
 
 def extract_one(client, provider, model, schema, video):
     transcript = video["transcript_path"].read_text(encoding="utf-8")
-    if provider == "xai":
-        raw = call_xai(client, model, schema, video, transcript)
+    if provider in OPENAI_COMPATIBLE:
+        raw = call_openai_compatible(client, model, schema, video, transcript)
     else:
         raw = call_anthropic(client, model, schema, video, transcript)
     doc = _extract_json(raw)
@@ -261,10 +281,13 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--source", required=True,
                     help="source_id (registered in sources.json)")
-    ap.add_argument("--provider", choices=["xai", "anthropic"], default=None,
-                    help="LLM provider (default: auto — xai if XAI_API_KEY else anthropic)")
+    ap.add_argument("--provider", choices=["xai", "anthropic", "openai"], default=None,
+                    help="LLM provider (default: auto-detect from env keys; "
+                         "preference order xai > anthropic > openai)")
     ap.add_argument("--model", default=None,
-                    help=f"model id (default per provider: {DEFAULTS['xai']['model']} / {DEFAULTS['anthropic']['model']})")
+                    help=f"model id (defaults: xai={DEFAULTS['xai']['model']} · "
+                         f"anthropic={DEFAULTS['anthropic']['model']} · "
+                         f"openai={DEFAULTS['openai']['model']})")
     ap.add_argument("--api-key", default=None,
                     help="API key for the chosen provider; falls back to env / .env")
     ap.add_argument("--limit", type=int, default=0,

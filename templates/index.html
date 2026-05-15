@@ -522,8 +522,8 @@
     <h2 style="margin:0 0 4px; font-size:20px;">Index a new domain expert</h2>
     <p class="muted" style="margin:0 0 18px; font-size:13px;">
       Paste a YouTube channel URL. The pipeline downloads every transcript,
-      extracts knowledge cards via Claude, and merges the source into the
-      unified atlas. Cross-source endpoints update automatically.
+      extracts knowledge cards via your chosen LLM provider, and merges the
+      source into the unified atlas. Cross-source endpoints update automatically.
     </p>
 
     <div id="ingest-form">
@@ -593,13 +593,18 @@
         <div style="display:flex; gap:6px; margin-bottom:10px;">
           <button type="button" id="prov-xai" class="prov-btn active" data-provider="xai" style="
             flex:1; background:var(--panel); color:var(--text); border:1px solid var(--border);
-            padding:8px 10px; border-radius:6px; cursor:pointer; font:13px inherit;">
+            padding:8px 10px; border-radius:6px; cursor:pointer; font:12px inherit;">
             xAI Grok <span class="prov-key-status muted" data-provider="xai"></span>
           </button>
           <button type="button" id="prov-anthropic" class="prov-btn" data-provider="anthropic" style="
             flex:1; background:var(--panel); color:var(--text); border:1px solid var(--border);
-            padding:8px 10px; border-radius:6px; cursor:pointer; font:13px inherit;">
+            padding:8px 10px; border-radius:6px; cursor:pointer; font:12px inherit;">
             Anthropic Claude <span class="prov-key-status muted" data-provider="anthropic"></span>
+          </button>
+          <button type="button" id="prov-openai" class="prov-btn" data-provider="openai" style="
+            flex:1; background:var(--panel); color:var(--text); border:1px solid var(--border);
+            padding:8px 10px; border-radius:6px; cursor:pointer; font:12px inherit;">
+            OpenAI <span class="prov-key-status muted" data-provider="openai"></span>
           </button>
         </div>
         <label style="display:block; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px;">Model</label>

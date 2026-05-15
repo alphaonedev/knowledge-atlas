@@ -26,7 +26,8 @@ A complete map of how the system is designed: data flow, components, APIs, MCP i
    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
    │   SOURCES    │ →  │   FETCHER    │ →  │  EXTRACTOR   │ →  │  AGGREGATOR  │
    │ sources.json │    │ yt-dlp       │    │  LLM (xAI /  │    │ build_       │
-   │   registry   │    │ transcripts  │    │  Anthropic)  │    │ knowledge.py │
+   │   registry   │    │ transcripts  │    │  Anthropic / │    │ knowledge.py │
+   │              │    │              │    │  OpenAI)     │    │              │
    └──────────────┘    └──────────────┘    └──────────────┘    └──────┬───────┘
                                                                        │
                                                                        ▼
@@ -89,7 +90,7 @@ A complete map of how the system is designed: data flow, components, APIs, MCP i
    │ STAGE 3: EXTRACT  (the only step that needs an LLM)                 │
    │ extract_knowledge.py --source <id>                                  │
    │   → for each transcript without a corresponding JSON file:          │
-   │       → calls xAI Grok or Anthropic Claude with:                    │
+   │       → calls xAI Grok / Anthropic Claude / OpenAI with:             │
    │           system: SCHEMA.md (cached when supported)                 │
    │           user:   transcript + video metadata                       │
    │       → expects strict JSON matching the card schema                │
@@ -331,7 +332,7 @@ See [HOW_TO_CONNECT.md](HOW_TO_CONNECT.md) for the full integration guide.
      │   reload UI                │                                │
 ```
 
-The web modal accepts the user's choice of provider (xAI Grok or Anthropic Claude). API keys are saved to a local `.env` (chmod 600) and never logged.
+The web modal accepts the user's choice of provider (xAI Grok, Anthropic Claude, or OpenAI). API keys are saved to a local `.env` (chmod 600) and never logged.
 
 ---
 

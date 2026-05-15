@@ -96,7 +96,7 @@ See [INSTALL.md](INSTALL.md) for full setup, [ARCHITECTURE.md](ARCHITECTURE.md) 
 
 ## Architecture (one paragraph)
 
-SQLite is the single source of truth. Flask exposes parallel surfaces — `/api/*` for the human dashboard, `/ai/*` for autonomous agents, `/ai/cross/*` for multi-source correlation, plus `/api/ingest` for self-serve onboarding. An MCP server provides the same data over stdio JSON-RPC to local AI clients without going through HTTP. Every card carries provenance back to a specific YouTube video so consumers can always cite the source. The extraction step is provider-agnostic (xAI Grok or Anthropic Claude); swap in another provider by adding one function. Read [ARCHITECTURE.md](ARCHITECTURE.md) for the full diagram and component breakdown.
+SQLite is the single source of truth. Flask exposes parallel surfaces — `/api/*` for the human dashboard, `/ai/*` for autonomous agents, `/ai/cross/*` for multi-source correlation, plus `/api/ingest` for self-serve onboarding. An MCP server provides the same data over stdio JSON-RPC to local AI clients without going through HTTP. Every card carries provenance back to a specific YouTube video so consumers can always cite the source. The extraction step is provider-agnostic (xAI Grok, Anthropic Claude, or OpenAI); swap in another provider by adding one function. Read [ARCHITECTURE.md](ARCHITECTURE.md) for the full diagram and component breakdown.
 
 ## Self-serve ingestion via the web UI
 

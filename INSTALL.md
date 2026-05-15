@@ -26,7 +26,7 @@ pip install -r requirements.txt
 
 ## 2. Configure your LLM provider
 
-Knowledge Atlas can use either xAI Grok or Anthropic Claude for extraction. Pick one (or both — the system auto-detects whichever key is present).
+Knowledge Atlas can use xAI Grok, Anthropic Claude, or OpenAI for extraction. Set any one (or more — the system auto-detects whichever key is present).
 
 Create a `.env` file in the project root:
 
@@ -36,6 +36,9 @@ XAI_API_KEY=sk-...
 
 # or Anthropic
 ANTHROPIC_API_KEY=sk-ant-...
+
+# or OpenAI
+OPENAI_API_KEY=sk-...
 ```
 
 The `.env` file is gitignored. The Flask server also reads `~/.env` if you keep keys globally.

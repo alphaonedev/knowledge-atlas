@@ -325,8 +325,9 @@ async def list_tools() -> list[Tool]:
                                   "description": "absolute YYYYMMDD lower bound (overrides window)"},
                     "until":     {"type": "string",
                                   "description": "absolute YYYYMMDD upper bound"},
-                    "provider":  {"type": "string", "enum": ["xai", "anthropic"],
-                                  "description": "LLM provider (default: auto)"},
+                    "provider":  {"type": "string", "enum": ["xai", "anthropic", "openai"],
+                                  "description": "LLM provider for the extraction step "
+                                                 "(default: auto-detect from env keys)"},
                     "model":     {"type": "string",
                                   "description": "model id (default: provider's default)"},
                 },

@@ -92,10 +92,15 @@ def _terminate_proc(proc, grace_sec=3):
         pass
 
 
-PROVIDER_ENV = {"xai": "XAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
+PROVIDER_ENV = {
+    "xai":       "XAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai":    "OPENAI_API_KEY",
+}
 PROVIDER_DEFAULT_MODEL = {
     "xai":       "grok-4.20-0309-reasoning",
     "anthropic": "claude-sonnet-4-5",
+    "openai":    "gpt-5",
 }
 
 
@@ -141,6 +146,8 @@ def _auto_provider():
         return "xai"
     if os.environ.get("ANTHROPIC_API_KEY"):
         return "anthropic"
+    if os.environ.get("OPENAI_API_KEY"):
+        return "openai"
     return None
 
 
@@ -830,6 +837,8 @@ def _ingest_pipeline(job_id, payload):
         api_key   = (payload.get("api_key") or "").strip()
         save_key  = payload.get("save_api_key", True)
         provider  = (payload.get("provider") or _auto_provider() or "xai").lower()
+        if provider not in PROVIDER_ENV:
+            provider = "xai"
         model     = (payload.get("model") or "").strip() or PROVIDER_DEFAULT_MODEL.get(provider)
         # Time-window for the fetch step. UI presets: 1d/1w/1m/3m/6m/1y/all
         # or explicit YYYYMMDD bounds via since/until.

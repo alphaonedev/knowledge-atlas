@@ -76,13 +76,16 @@ source .venv/bin/activate         # Windows: .venv\Scripts\activate
 pip install -r requirements.txt</code></pre>
 
     <h2 id="provider">2. Configure your LLM provider</h2>
-    <p>Knowledge Atlas can use either xAI Grok or Anthropic Claude. Pick one — or both; the system auto-detects whichever key is set.</p>
+    <p>Knowledge Atlas can use xAI Grok, Anthropic Claude, or OpenAI. Set any one (or more); the system auto-detects whichever key is present.</p>
     <p>Create a <code>.env</code> file in the project root:</p>
     <pre><code># xAI (default)
 XAI_API_KEY=sk-...
 
 # or Anthropic
-ANTHROPIC_API_KEY=sk-ant-...</code></pre>
+ANTHROPIC_API_KEY=sk-ant-...
+
+# or OpenAI
+OPENAI_API_KEY=sk-...</code></pre>
     <p>The <code>.env</code> file is gitignored. The server also reads <code>~/.env</code> if you keep keys globally.</p>
     <blockquote>
       <b>Cost note.</b> Extraction runs ~3K input / ~1K output tokens per video. ~$0.02–$0.04 per video. A typical 60-video channel runs about $2.
