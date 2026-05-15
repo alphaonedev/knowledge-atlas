@@ -414,6 +414,41 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
 
+def _safe_field(value, max_len=300):
+    """Sanitize a string field before echoing it through MCP tool output.
+
+    Why this exists: an MCP tool response is text that flows directly into an
+    LLM's context window. If a malicious (or fat-fingered) actor managed to
+    write prompt-injection text into a source's `url`, `name`, etc., it would
+    arrive at the LLM as untrusted instructions wearing the costume of a
+    legitimate data field. Claude Desktop caught one such case in the wild and
+    refused to act, but defense-in-depth means we sanitize at the server too:
+      - cap length (real YouTube URLs are < 150 chars)
+      - collapse newlines/tabs (block-quote-style injections need newlines)
+      - mark obvious non-URL contents in URL-typed fields
+    """
+    if value is None:
+        return ""
+    s = str(value).replace("\r", " ").replace("\n", " ").replace("\t", " ")
+    s = " ".join(s.split())  # collapse runs of whitespace
+    if len(s) > max_len:
+        s = s[:max_len] + f"… [truncated, {len(value) - max_len} more chars]"
+    return s
+
+
+def _safe_url(value):
+    """Same as _safe_field but additionally flags URL-typed fields whose
+    content doesn't look like a URL — so an LLM reading the output sees a
+    clear `<malformed>` marker instead of injection text."""
+    s = _safe_field(value, max_len=200)
+    if not s:
+        return ""
+    low = s.lower()
+    if not (low.startswith("http://") or low.startswith("https://")):
+        return f"<malformed URL value omitted>"
+    return s
+
+
 def _list_sources():
     src = rows("SELECT * FROM sources")
     out = [f"## Indexed sources ({len(src)})", ""]
@@ -421,14 +456,14 @@ def _list_sources():
         videos = one("SELECT COUNT(*) AS n FROM videos WHERE source_id=?", (s["id"],))["n"]
         cards = one("SELECT COUNT(*) AS n FROM cards WHERE source_id=?", (s["id"],))["n"]
         cats = one("SELECT COUNT(DISTINCT category) AS n FROM cards WHERE source_id=?", (s["id"],))["n"]
-        out.append(f"### {s['name']} (`{s['id']}`)")
+        out.append(f"### {_safe_field(s['name'], 120)} (`{_safe_field(s['id'], 60)}`)")
         if s.get("expertise"):
-            out.append(f"*{s['expertise']}*")
+            out.append(f"*{_safe_field(s['expertise'], 200)}*")
         out.append("")
-        out.append(f"- **Domain:** {s.get('domain', '—')}")
+        out.append(f"- **Domain:** {_safe_field(s.get('domain') or '—', 80)}")
         out.append(f"- **Size:** {videos} videos · {cards} cards · {cats} topics")
         if s.get("url"):
-            out.append(f"- **Source:** {s['url']}")
+            out.append(f"- **Source:** {_safe_url(s['url'])}")
         out.append("")
     return [TextContent(type="text", text="\n".join(out))]
 

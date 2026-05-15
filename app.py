@@ -152,14 +152,30 @@ def _auto_provider():
 
 
 def _derive_id_from_url(url):
-    """Best-effort: extract a stable short id from a YouTube channel URL."""
-    p = urlparse(url)
+    """Best-effort: extract a stable short id from a YouTube channel URL.
+    Returns None if no usable handle/channel id can be extracted — the caller
+    must error rather than fall back to a meaningless literal like "source"
+    (which once produced a corrupt entry id="source" in sources.json when the
+    URL field was filled with non-URL text)."""
+    if not url or not isinstance(url, str):
+        return None
+    p = urlparse(url.strip())
+    if p.scheme not in ("http", "https") or "youtube.com" not in (p.netloc or "").lower():
+        return None
     path = p.path.strip("/")
     if path.startswith("@"):
         path = path[1:]
-    # take first path segment, drop /videos suffix etc.
-    seg = (path.split("/") or [""])[0]
-    return re.sub(r"[^A-Za-z0-9_-]+", "", seg).lower() or "source"
+    parts = [seg for seg in path.split("/") if seg]
+    if not parts:
+        return None
+    # /channel/UC... and /user/foo route on the SECOND segment, not the first —
+    # otherwise every channel-id URL collapses to the literal id "channel".
+    if parts[0].lower() in ("channel", "user", "c") and len(parts) >= 2:
+        seg = parts[1]
+    else:
+        seg = parts[0]
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "", seg).lower()
+    return cleaned or None
 
 app = Flask(__name__, template_folder=str(ROOT / "templates"),
             static_folder=str(ROOT / "static"))
@@ -1006,6 +1022,34 @@ def _ingest_pipeline(job_id, payload):
             fetch_cmd += ["--until", until]
         _job_log(job_id, f"window={window} since={since or '-'} until={until or '-'} workers={workers}")
         _stream_subprocess(fetch_cmd, job_id, "fetch_channel.py")
+
+        # Guard against the "0 videos found" failure mode. Without this, a bad
+        # URL (or a too-narrow time window) sailed through every later phase as
+        # a no-op and the UI cheerfully reported "Source 'X' is live in the
+        # atlas" with nothing to show for it. If fetch produced zero usable
+        # transcripts, fail loudly so the modal surfaces the real reason.
+        tx_dir = ROOT / "sources" / sid / "transcripts"
+        txt_count = (len([p for p in tx_dir.glob("*.txt")
+                          if not p.name.endswith(".timed.txt")])
+                     if tx_dir.exists() else 0)
+        if txt_count == 0:
+            # Roll back the registry entry we just wrote — a source with no
+            # transcripts on disk is worse than no source at all (it
+            # misattributes every later "By source" report).
+            try:
+                doc = json.loads(SOURCES_PATH.read_text())
+                doc["sources"] = [s for s in doc.get("sources", [])
+                                  if s.get("id") != sid]
+                SOURCES_PATH.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+                _job_log(job_id, f"rolled back sources.json entry for '{sid}'")
+            except Exception as _e:
+                _job_log(job_id, f"WARN: couldn't roll back sources.json: {_e}")
+            raise RuntimeError(
+                f"No transcripts produced for {channel_url}. "
+                f"Check the channel URL (handle must resolve in yt-dlp) and the "
+                f"time window (try 'all' if you used a short window)."
+            )
+        _job_log(job_id, f"fetch produced {txt_count} transcript file(s)")
         _job_set(job_id, percent=55)
 
         # 3. AI extraction (requires API key for the chosen provider)
@@ -1061,8 +1105,26 @@ def _ingest_pipeline(job_id, payload):
 @app.route("/api/ingest", methods=["POST"])
 def api_ingest():
     payload = request.get_json(silent=True) or {}
-    if not payload.get("url"):
+    url = (payload.get("url") or "").strip()
+    if not url:
         return jsonify({"error": "url required"}), 400
+    # Validate up-front: must be a real YouTube channel/handle URL. This
+    # prevents the failure mode where someone pastes free-form text into the
+    # URL field and a source gets registered with a meaningless fallback id.
+    p = urlparse(url)
+    if p.scheme not in ("http", "https") or "youtube.com" not in (p.netloc or "").lower():
+        return jsonify({
+            "error": "url must be a YouTube channel URL "
+                     "(e.g. https://www.youtube.com/@AllInPod)"
+        }), 400
+    sid = payload.get("source_id") or _derive_id_from_url(url)
+    if not sid:
+        return jsonify({
+            "error": "couldn't derive a source id from this URL — "
+                     "use a channel handle like /@AllInPod or /channel/UC..."
+        }), 400
+    payload["source_id"] = sid
+    payload["url"] = url
     job_id = uuid.uuid4().hex[:10]
     _job_set(job_id, status="queued", step="queued", percent=0,
              message="Queued", log=[])
