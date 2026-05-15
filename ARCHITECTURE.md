@@ -394,6 +394,33 @@ The web modal renders the structured progress data as **inline-SVG charts, not t
 
 ---
 
+## WSGI server (production-quality, pure Python)
+
+Flask's built-in development server is fine for `python3 app.py` iteration but is **single-threaded by default**, **noisy** (logs every request to stdout), and warns loudly that it's not suitable for production. The atlas instead serves through **Waitress** — a pure-Python, multi-threaded WSGI server by the Pyramid team — and falls back to the Flask dev server only when Waitress isn't installed.
+
+```python
+def _serve(host="127.0.0.1", port=5179, threads=8):
+    try:
+        from waitress import serve as waitress_serve
+        waitress_serve(app, host=host, port=port, threads=threads,
+                       _quiet=True, ident="knowledge-atlas")
+    except ImportError:
+        # No Waitress → Flask dev server. Works but noisy.
+        app.run(host=host, port=port, debug=False)
+```
+
+Why Waitress specifically (not Gunicorn or uWSGI):
+
+- **Cross-platform** — runs the same on macOS, Linux, and Windows. Gunicorn is Unix-only (forks); uWSGI is Linux-leaning. A localhost personal tool that ships across all three OSes needs portability.
+- **Pure Python** — no compiled extensions, installs in one second from PyPI, no system dependencies.
+- **Quiet by default** — no per-request access logging. The tray app + dashboard poll the atlas multiple times a minute; logging every one of those would flood `data/atlas.log`. Waitress just lets them through silently and only logs actual problems.
+- **Multi-threaded** — 8 worker threads handle concurrent requests, important during ingestion when the modal polls `/api/ingest/status` while the tray polls `/api/source` and the user might also have the dashboard browsing cards.
+- **Production-grade** — runs the Pyramid framework's production traffic and has been battle-tested for years.
+
+The atlas does *not* try to be a public-facing web service. It binds to `127.0.0.1` only and uses the localhost trust model. The Waitress switch is purely about quieter operation and correct concurrency, not about exposing the atlas externally.
+
+---
+
 ## LLM provider abstraction
 
 `extract_knowledge.py` is provider-agnostic by design.

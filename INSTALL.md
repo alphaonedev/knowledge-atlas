@@ -22,7 +22,9 @@ source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-`requirements.txt` pulls in Flask, yt-dlp, the `openai` SDK (used as xAI's OpenAI-compatible client), the `anthropic` SDK, the `mcp` SDK, and a few analytics helpers.
+`requirements.txt` pulls in Flask + Waitress (the production-quality WSGI server we serve through), yt-dlp, the `openai` SDK (used as xAI's OpenAI-compatible client), the `anthropic` SDK, the `mcp` SDK, and a few analytics helpers.
+
+> **Why Waitress?** Flask's built-in server is a *development* server — single-threaded by default, noisy (logs every request to stdout), and shows a big red "do not use in production" warning when it starts. Waitress is a pure-Python, multi-threaded WSGI server with quiet defaults that works the same on macOS, Linux, and Windows. The atlas serves through Waitress by default and falls back to the Flask dev server only if Waitress isn't installed.
 
 ## 2. Configure your LLM provider
 

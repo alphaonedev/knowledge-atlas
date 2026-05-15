@@ -74,7 +74,7 @@ ROOT = Path(__file__).resolve().parent
 ATLAS_CLI = ROOT / "atlas.py"
 LOG_FILE = ROOT / "data" / "atlas.log"
 DASHBOARD_URL = "http://127.0.0.1:5179/"
-POLL_INTERVAL_SEC = 3
+POLL_INTERVAL_SEC = 15  # status indicator refresh; 3s was excessive log noise
 ICON_SIZE = 64  # rendered at high-res; OS scales down for menu bar
 
 PLATFORM = platform.system()  # "Darwin" / "Windows" / "Linux"

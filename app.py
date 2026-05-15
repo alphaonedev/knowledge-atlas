@@ -1157,8 +1157,32 @@ def api_ingest_has_key():
     })
 
 
+def _serve(host="127.0.0.1", port=5179, threads=8):
+    """Serve the Flask app behind Waitress (production WSGI server, pure Python,
+    cross-platform). Falls back to Flask's development server only when Waitress
+    isn't installed — which is fine for a quick try-out but logs noisily and
+    handles concurrency poorly. The Flask team warns about this in big red
+    letters when the dev server boots, which is why we prefer Waitress."""
+    try:
+        from waitress import serve as waitress_serve
+        # flush=True so the line surfaces in atlas.log immediately even when
+        # stdout is being captured (atlas.py runs app.py as a subprocess).
+        print(f"Knowledge Atlas serving via Waitress (threads={threads}) at "
+              f"http://{host}:{port}/", flush=True)
+        # Waitress is quiet by default — no per-request access logs — which
+        # eliminates the spam from tray-app + dashboard polling that the dev
+        # server produces.
+        waitress_serve(app, host=host, port=port, threads=threads,
+                       _quiet=True, ident="knowledge-atlas")
+    except ImportError:
+        print("Waitress not installed; falling back to Flask development server.",
+              flush=True)
+        print("For production-quality serving:  pip install waitress", flush=True)
+        print(f"Knowledge Atlas serving at http://{host}:{port}/", flush=True)
+        app.run(host=host, port=port, debug=False)
+
+
 if __name__ == "__main__":
     if not DB_PATH.exists():
         raise SystemExit(f"Database not found at {DB_PATH} — run build_knowledge.py first.")
-    print("Knowledge Atlas serving at http://127.0.0.1:5179/")
-    app.run(host="127.0.0.1", port=5179, debug=False)
+    _serve()

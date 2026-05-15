@@ -47,6 +47,7 @@
     <a href="#ingest">Self-serve ingest</a>
     <a href="#progress-protocol" style="padding-left:24px;">↳ progress protocol</a>
     <a href="#viz-layer" style="padding-left:24px;">↳ live dashboard</a>
+    <a href="#wsgi">WSGI server (Waitress)</a>
     <a href="#provider">LLM provider abstraction</a>
     <a href="#extensibility">Extensibility</a>
     <a href="#security">Security & privacy</a>
@@ -515,6 +516,38 @@ GET /api/ingest                                   → emits @@PROGRESS@@ events
       <li>Aggregation happens <b>server-side</b> in <code>_handle_progress_event()</code>. The phase state returned by <code>/api/ingest/status</code> already contains <code>cards_total</code>, <code>kinds_total</code> (<code>{kind: count}</code> dict), <code>recent_items</code> (last 20), <code>counts</code> (fetch breakdown), <code>rate</code>, and <code>eta_sec</code> &mdash; the browser doesn't need to maintain history of its own.</li>
       <li>Raw subprocess stdout lives in a foldable <code>&lt;details&gt;</code> panel labeled &ldquo;Streaming log&rdquo; &mdash; there for debugging, not the default view. <code>@@PROGRESS@@</code> lines never appear in that panel (the parser consumes them silently).</li>
     </ul>
+
+    <h2 id="wsgi">WSGI server (production-quality, pure Python)</h2>
+    <p>
+      Flask's built-in development server is fine for <code>python3 app.py</code>
+      iteration but is <b>single-threaded by default</b>, <b>noisy</b> (logs every
+      request to stdout), and warns loudly that it's not suitable for production.
+      The atlas instead serves through <b>Waitress</b> &mdash; a pure-Python,
+      multi-threaded WSGI server by the Pyramid team &mdash; and falls back to
+      the Flask dev server only when Waitress isn't installed.
+    </p>
+    <pre><code>def _serve(host="127.0.0.1", port=5179, threads=8):
+    try:
+        from waitress import serve as waitress_serve
+        waitress_serve(app, host=host, port=port, threads=threads,
+                       _quiet=True, ident="knowledge-atlas")
+    except ImportError:
+        # No Waitress → Flask dev server. Works but noisy.
+        app.run(host=host, port=port, debug=False)</code></pre>
+    <p>Why Waitress specifically (not Gunicorn or uWSGI):</p>
+    <ul>
+      <li><b>Cross-platform</b> &mdash; runs the same on macOS, Linux, and Windows. Gunicorn is Unix-only (forks); uWSGI is Linux-leaning. A localhost personal tool that ships across all three OSes needs portability.</li>
+      <li><b>Pure Python</b> &mdash; no compiled extensions, installs in one second from PyPI, no system dependencies.</li>
+      <li><b>Quiet by default</b> &mdash; no per-request access logging. The tray app + dashboard poll the atlas multiple times a minute; logging every one of those would flood <code>data/atlas.log</code>. Waitress lets them through silently and only logs actual problems.</li>
+      <li><b>Multi-threaded</b> &mdash; 8 worker threads handle concurrent requests, important during ingestion when the modal polls <code>/api/ingest/status</code> while the tray polls <code>/api/source</code> and the user might also be browsing cards.</li>
+      <li><b>Production-grade</b> &mdash; runs the Pyramid framework's production traffic and has been battle-tested for years.</li>
+    </ul>
+    <p>
+      The atlas does <b>not</b> try to be a public-facing web service. It binds to
+      <code>127.0.0.1</code> only and uses the localhost trust model. The Waitress switch
+      is purely about quieter operation and correct concurrency, not about exposing the
+      atlas externally.
+    </p>
 
     <h2 id="provider">LLM provider abstraction</h2>
     <p><code>extract_knowledge.py</code> is provider-agnostic by design:</p>

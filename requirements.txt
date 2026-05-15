@@ -1,5 +1,8 @@
 # Core
 flask>=3.0
+waitress>=3.0     # production-quality WSGI server (pure Python, cross-platform)
+                  # Flask's built-in server is a dev server only; Waitress is
+                  # quiet, multi-threaded, and works the same on macOS / Linux / Windows.
 yt-dlp>=2024.1.1
 
 # LLM providers (install at least one)
