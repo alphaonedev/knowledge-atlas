@@ -1583,8 +1583,8 @@ async function pollIngest(job_id) {
 
     renderPhaseSummary(s);
 
-    // Live visualization for the active phase (or last terminal phase)
-    const phases = s.phases || {};
+    // Live visualization for the active phase (or last terminal phase).
+    // (Reuse the `phases` const declared earlier in this function for ETA calc.)
     const vizActive = s.active_phase;
     const vizPhase = phases[vizActive];
     const vizEl = $("#prog-viz");
