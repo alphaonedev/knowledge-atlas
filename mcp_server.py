@@ -157,6 +157,43 @@ def _toks_for_match(fq):
     return filtered or raw
 
 
+def _fts_match_with_fallback(toks, *, min_hits=1):
+    """Build an FTS5 MATCH expression. Strict-AND only for multi-token queries.
+
+    Returning `tok1* OR tok2* OR ...` for every query produces a flood of
+    false positives on multi-word names: "Marc Benioff" matched every card
+    containing "March" or "Marketing" because each token was OR'd as an
+    independent prefix wildcard.
+
+    Multi-token policy:
+      Tier A: `tok1 AND tok2 AND ...`     — exact tokens, all required
+      Tier B: `tok1* AND tok2* AND ...`   — prefix wildcards, all required
+                                            (typo / morphology tolerant)
+      Otherwise: return None — honest empty rather than misleading OR.
+
+    Single-token: just `tok*` (prefix). Returns None on empty token list.
+    """
+    if not toks:
+        return None
+    if len(toks) == 1:
+        return toks[0] + "*"
+    candidates = [
+        " AND ".join(toks),
+        " AND ".join(t + "*" for t in toks),
+    ]
+    for expr in candidates:
+        try:
+            n = one(
+                "SELECT COUNT(*) AS n FROM cards_fts WHERE cards_fts MATCH ?",
+                (expr,),
+            )
+        except Exception:
+            continue
+        if n and (n.get("n") or 0) >= min_hits:
+            return expr
+    return None
+
+
 def hydrate_card(c):
     c["framework_steps"] = [
         r["step_content"] for r in rows(
@@ -567,7 +604,13 @@ def _search_knowledge(args):
             type="text",
             text=f"Unknown source_id `{source_id}`. Call `list_sources` to see valid ids.",
         )]
-    fq_match = " OR ".join(t + "*" for t in toks)
+    fq_match = _fts_match_with_fallback(toks)
+    if not fq_match:
+        return [TextContent(
+            type="text",
+            text=f"## Search · `{q}` · 0 cards\n\n_No cards match all of these terms. "
+                 f"Try fewer or different keywords._",
+        )]
     sql = """
         SELECT c.id, c.kind, c.category, c.title, c.content, c.reasoning,
                c.source_quote, c.video_id, v.title AS video_title, v.url AS video_url
@@ -599,11 +642,17 @@ def _teach_about(args):
     if not fq:
         return [TextContent(type="text", text="Empty question.")]
     toks = _toks_for_match(fq)
-    fq_match = " OR ".join(t + "*" for t in toks) if toks else fq
     if source_id and not one("SELECT id FROM sources WHERE id=?", (source_id,)):
         return [TextContent(
             type="text",
             text=f"Unknown source_id `{source_id}`. Call `list_sources` to see valid ids.",
+        )]
+    fq_match = _fts_match_with_fallback(toks)
+    if not fq_match:
+        return [TextContent(
+            type="text",
+            text=f"# Teaching packet — {q}\n\n_No cards match all of these terms. "
+                 f"Try fewer or different keywords._",
         )]
     sql = """
         SELECT c.id, c.kind, c.category, c.title, c.content, c.reasoning,
@@ -671,7 +720,12 @@ def _cross_concept(args):
     if not fq:
         return [TextContent(type="text", text="Empty term.")]
     toks = _toks_for_match(fq)
-    fq_match = " OR ".join(t + "*" for t in toks) if toks else fq
+    fq_match = _fts_match_with_fallback(toks)
+    if not fq_match:
+        return [TextContent(
+            type="text",
+            text=f"# Cross-source · `{term}`\n\n_No cards match all of these terms._",
+        )]
     hits = [hydrate_card(c) for c in rows("""
         SELECT c.id, c.source_id, c.kind, c.category, c.title, c.content,
                c.reasoning, c.source_quote, c.video_id,
