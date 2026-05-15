@@ -922,8 +922,13 @@ def _stream_subprocess(args, job_id, step_label):
         raise _Cancelled()
 
     _job_log(job_id, f"$ {' '.join(args)}")
+    # Force unbuffered stdout in any Python child so progress lines reach the
+    # dashboard in real time. Without this, fetch_channel.py's prints sit in
+    # the block buffer until yt-dlp returns (10-30s), the modal looks frozen,
+    # and the user hits Stop. PYTHONUNBUFFERED is a no-op for non-Python tools.
+    child_env = {**os.environ, "PYTHONUNBUFFERED": "1"}
     proc = subprocess.Popen(
-        args, cwd=str(ROOT),
+        args, cwd=str(ROOT), env=child_env,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, bufsize=1,
         start_new_session=True,  # new process group → killable as a unit
