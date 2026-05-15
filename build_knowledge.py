@@ -125,15 +125,44 @@ def main():
             s.get("first_indexed"), s.get("license"), s.get("trust_notes"),
         ))
 
-    default_source = sources[0]["id"] if sources else "unknown"
+    # Build a video_id → source_id map by scanning each source's
+    # channel_metadata.json. This is how we attribute each card to the
+    # source it actually came from — using sources[0]["id"] as a default
+    # was a bug that misattributed every new source's cards to the FIRST
+    # source in sources.json.
+    video_to_source = {}
+    legacy_meta = ROOT / "channel_metadata.json"  # backwards-compat single-source layout
+    for s in sources:
+        sid = s["id"]
+        # Per-source layout (sources/<id>/channel_metadata.json) — current standard
+        per_source = ROOT / "sources" / sid / "channel_metadata.json"
+        # Legacy layout (channel_metadata.json at project root) — kept for any
+        # source that was added before the multi-source refactor
+        meta_path = per_source if per_source.exists() else legacy_meta
+        if not meta_path.exists():
+            continue
+        try:
+            meta = json.loads(meta_path.read_text())
+        except Exception:
+            continue
+        for v in meta:
+            vid_id = v.get("id")
+            if vid_id and vid_id not in video_to_source:
+                video_to_source[vid_id] = sid
+
+    fallback_source = sources[0]["id"] if sources else "unknown"
 
     # videos + categories + cards
     total_cards = 0
     kind_counts = Counter()
     category_counts = Counter()
+    unmapped = []
     for vid, summary in summaries.items():
+        source_id = video_to_source.get(vid, fallback_source)
+        if vid not in video_to_source:
+            unmapped.append(vid)
         cur.execute("""INSERT INTO videos VALUES (?,?,?,?,?,?)""", (
-            vid, default_source,
+            vid, source_id,
             summary.get("video_title"),
             summary.get("video_url"),
             summary.get("one_line"),
@@ -154,7 +183,7 @@ def main():
                 INSERT INTO cards(source_id, video_id, kind, category, title,
                                   content, reasoning, source_quote)
                 VALUES (?,?,?,?,?,?,?,?)
-            """, (default_source, vid, kind, category,
+            """, (source_id, vid, kind, category,
                   c.get("title", ""), c.get("content", ""),
                   c.get("reasoning", "") or None,
                   c.get("source_quote", "") or None))
@@ -219,6 +248,24 @@ def main():
     print("By kind:")
     for k, n in kind_counts.most_common():
         print(f"  {k:18s}  {n}")
+    # Per-source attribution summary — surfaces the bug we just fixed if it
+    # ever regresses: each source should show non-zero counts if it has
+    # any extracted card files on disk.
+    from collections import Counter as _Counter
+    per_source = _Counter()
+    for vid, summary in summaries.items():
+        sid = video_to_source.get(vid, fallback_source)
+        per_source[sid] += len(cards_by_video.get(vid, []))
+    print("By source:")
+    for sid, n in per_source.most_common():
+        videos_n = sum(1 for vid in summaries
+                       if video_to_source.get(vid, fallback_source) == sid)
+        print(f"  {sid:25s}  {videos_n:>4} videos  {n:>5} cards")
+    if unmapped:
+        print(f"WARNING: {len(unmapped)} videos couldn't be mapped to a "
+              f"source; defaulted to '{fallback_source}'.")
+        for vid in unmapped[:5]:
+            print(f"  · {vid}")
     print(f"Wrote {DB_PATH} and {EXPORT/'knowledge_atlas.json'}")
     _emit_progress("phase_done", phase="aggregate",
                    elapsed_sec=round(_time.time() - _started, 1),
