@@ -566,6 +566,17 @@
           <input id="in-until" type="date" class="search-box" style="padding:8px 10px; font-size:13px;">
         </div>
         <p id="window-hint" class="muted" style="font-size:11px; margin:8px 0 0;">Fetch every video on the channel.</p>
+        <div style="display:flex; align-items:center; gap:8px; margin-top:12px; padding-top:10px; border-top:1px dashed var(--border);">
+          <label for="in-workers" style="font-size:12px; color:var(--muted); white-space:nowrap;">Parallel downloads:</label>
+          <select id="in-workers" class="search-box" style="padding:4px 8px; font-size:12px; max-width:90px;">
+            <option value="1">1 (slowest, politest)</option>
+            <option value="2">2</option>
+            <option value="4" selected>4 (default)</option>
+            <option value="6">6</option>
+            <option value="8">8 (fastest, risk)</option>
+          </select>
+          <span class="muted" style="font-size:11px;">Higher = faster but may hit YouTube rate limits.</span>
+        </div>
       </div>
 
       <style>
@@ -1114,6 +1125,7 @@ $("#submit-ingest").addEventListener("click", async () => {
     window: isCustom ? "all" : selectedWindow,
     since: isCustom ? toYYYYMMDD(sinceRaw) : null,
     until: isCustom ? toYYYYMMDD(untilRaw) : null,
+    workers: parseInt($("#in-workers")?.value || "4", 10),
   };
   $("#ingest-form").style.display = "none";
   $("#ingest-progress").style.display = "block";

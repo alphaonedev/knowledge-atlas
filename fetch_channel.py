@@ -22,6 +22,9 @@ from pathlib import Path
 import argparse
 import datetime
 import os
+import random
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 ROOT = Path(__file__).resolve().parent
 PREF_LANGS = ["en", "en-US", "en-GB"]
@@ -227,6 +230,68 @@ def srt_to_text(srt_path):
     return plain, "\n".join(timed_lines)
 
 
+_print_lock = threading.Lock()
+
+
+def _process_one_video(v, raw_dir, txt_dir, existing, source_id, since, until,
+                       max_retries=3):
+    """Download one video's transcript with retry + exponential backoff.
+
+    Returns (record_dict, status_str) where status_str is one of:
+      'cached'   already on disk and valid; no work done
+      'fetched'  downloaded successfully
+      'no_subs'  video has no captions available (or filtered by date window)
+      'failed'   after all retries
+    """
+    vid = v["id"]
+    if not vid:
+        return None, "skipped"
+
+    txt_path = txt_dir / f"{vid}.txt"
+    timed_path = txt_dir / f"{vid}.timed.txt"
+    rec = dict(existing.get(vid, {}))
+    rec.update(v)
+    rec["source_id"] = source_id
+
+    # Already-present and valid? Skip the network round-trip entirely.
+    if txt_path.exists() and _is_valid_transcript(txt_path):
+        plain = txt_path.read_text(encoding="utf-8")
+        rec["has_transcript"] = True
+        rec["word_count"] = len(plain.split())
+        return rec, "cached"
+
+    last_err = None
+    for attempt in range(max_retries):
+        if attempt > 0:
+            # Exponential backoff with jitter — 1s, then 2-3s, then 4-5s.
+            time.sleep((2 ** (attempt - 1)) + random.uniform(0, 1.0))
+        try:
+            srt_path = download_subs(vid, raw_dir, since=since, until=until)
+            if not srt_path:
+                # No subs available (or window-filtered). Don't retry.
+                if since or until:
+                    return None, "no_subs"  # window-filtered → drop record
+                rec["has_transcript"] = False
+                rec["word_count"] = 0
+                return rec, "no_subs"
+
+            plain, timed = srt_to_text(srt_path)
+            _atomic_write_text(txt_path, plain)
+            _atomic_write_text(timed_path, timed)
+            rec["has_transcript"] = True
+            rec["word_count"] = len(plain.split())
+            return rec, "fetched"
+        except Exception as e:
+            last_err = e
+
+    # All retries exhausted
+    with _print_lock:
+        print(f"      ! {vid} failed after {max_retries} attempts: {last_err}")
+    rec["has_transcript"] = False
+    rec["word_count"] = 0
+    return rec, "failed"
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Fetch all transcripts from a YouTube channel for a source.")
@@ -240,7 +305,13 @@ def main():
                     help="Absolute lower date bound YYYYMMDD (overrides --window)")
     ap.add_argument("--until", default=None,
                     help="Absolute upper date bound YYYYMMDD")
+    ap.add_argument("--workers", type=int, default=4,
+                    help="Parallel transcript downloads (default 4; max 8 recommended "
+                         "to avoid YouTube rate limits)")
+    ap.add_argument("--retries", type=int, default=3,
+                    help="Retry attempts per video on transient failures (default 3)")
     args = ap.parse_args()
+    args.workers = max(1, min(args.workers, 8))
 
     since, until = resolve_window(args.window, args.since, args.until)
     if since or until:
@@ -279,51 +350,54 @@ def main():
         except Exception:
             pass
 
+    print(f"[2/3] Downloading transcripts with {args.workers} parallel worker(s)…")
     records = []
-    for idx, v in enumerate(videos, 1):
-        vid = v["id"]
-        if not vid:
-            continue
-        print(f"[2/3] ({idx}/{len(videos)}) {vid}  {v['title'][:70]}")
+    counts = {"cached": 0, "fetched": 0, "no_subs": 0, "failed": 0, "skipped": 0}
+    done = 0
+    total = len(videos)
+    started = time.time()
 
-        txt_path = txt_dir / f"{vid}.txt"
-        timed_path = txt_dir / f"{vid}.timed.txt"
-        rec = dict(existing.get(vid, {}))
-        rec.update(v)
-        rec["source_id"] = args.source
-
-        if not txt_path.exists():
-            srt_path = download_subs(vid, raw_dir, since=since, until=until)
-            if not srt_path:
-                # Either no subs available, or video falls outside the time window.
-                # We don't even append a metadata record for filtered-out videos
-                # to keep the registry clean.
-                rec["has_transcript"] = False
-                rec["word_count"] = 0
-                if since or until:
-                    # Skip the record entirely when window-filtered
-                    continue
-                records.append(rec)
+    with ThreadPoolExecutor(max_workers=args.workers) as ex:
+        futures = {}
+        for v in videos:
+            if not v.get("id"):
                 continue
-            plain, timed = srt_to_text(srt_path)
-            # Atomic writes — if killed mid-write, no partial file is left behind
-            _atomic_write_text(txt_path, plain)
-            _atomic_write_text(timed_path, timed)
-        else:
-            plain = txt_path.read_text(encoding="utf-8")
+            futures[ex.submit(
+                _process_one_video, v, raw_dir, txt_dir, existing,
+                args.source, since, until, args.retries,
+            )] = v
+        for future in as_completed(futures):
+            v = futures[future]
+            rec, status = future.result()
+            counts[status] = counts.get(status, 0) + 1
+            done += 1
+            if rec is not None:
+                records.append(rec)
+            with _print_lock:
+                tag = {"cached": "·", "fetched": "✓", "no_subs": "—",
+                       "failed": "✗", "skipped": "·"}.get(status, "?")
+                rate = done / max(0.1, time.time() - started)
+                print(f"      [{done:>3}/{total}] {tag} {v['id']}  "
+                      f"({status:<7}) {rate:.1f}/s  {v['title'][:55]}")
 
-        rec["has_transcript"] = bool(plain)
-        rec["word_count"] = len(plain.split())
-
-        # Enrich with full metadata (upload_date, view_count) if missing
-        if not rec.get("upload_date") or not rec.get("view_count"):
-            full = enrich_metadata(vid)
+    # Enrich missing metadata for fetched videos (serial — small batch, only
+    # for the few that need it). Most records already have full metadata from
+    # the flat-playlist listing.
+    needs_enrich = [r for r in records if r.get("has_transcript")
+                    and (not r.get("upload_date") or not r.get("view_count"))]
+    if needs_enrich:
+        print(f"      Enriching metadata for {len(needs_enrich)} videos…")
+        for rec in needs_enrich:
+            full = enrich_metadata(rec["id"])
             for k in ("upload_date", "view_count", "duration", "like_count",
                       "comment_count", "description", "tags", "channel"):
                 if full.get(k) is not None and not rec.get(k):
                     rec[k] = full.get(k)
 
-        records.append(rec)
+    elapsed = time.time() - started
+    print(f"      Stage 2 done in {elapsed:.1f}s  ·  "
+          f"cached={counts.get('cached',0)} fetched={counts.get('fetched',0)} "
+          f"no_subs={counts.get('no_subs',0)} failed={counts.get('failed',0)}")
 
     print(f"[3/3] Writing metadata to {meta_path}")
     _atomic_write_text(meta_path, json.dumps(records, indent=2, default=str))

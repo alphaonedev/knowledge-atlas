@@ -838,6 +838,12 @@ def _ingest_pipeline(job_id, payload):
         until     = (payload.get("until") or "").strip() or None
         if window not in {"1d", "1w", "1m", "3m", "6m", "1y", "all"}:
             window = "all"
+        # Parallel transcript downloads. Default 4 — polite to YouTube,
+        # ~4× faster than serial. Cap at 8 to avoid rate-limit risk.
+        try:
+            workers = max(1, min(int(payload.get("workers", 4)), 8))
+        except (TypeError, ValueError):
+            workers = 4
 
         # Normalize URL — yt-dlp wants /videos for channels
         if "/videos" not in url and "/watch" not in url and "/playlist" not in url:
@@ -871,12 +877,12 @@ def _ingest_pipeline(job_id, payload):
                  message=f"Fetching transcripts from {channel_url}")
         fetch_cmd = [sys.executable, str(ROOT / "fetch_channel.py"),
                      "--url", channel_url, "--source", sid,
-                     "--window", window]
+                     "--window", window, "--workers", str(workers)]
         if since:
             fetch_cmd += ["--since", since]
         if until:
             fetch_cmd += ["--until", until]
-        _job_log(job_id, f"window={window} since={since or '-'} until={until or '-'}")
+        _job_log(job_id, f"window={window} since={since or '-'} until={until or '-'} workers={workers}")
         _stream_subprocess(fetch_cmd, job_id, "fetch_channel.py")
         _job_set(job_id, percent=55)
 
