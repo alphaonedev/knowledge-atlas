@@ -157,41 +157,75 @@ def _toks_for_match(fq):
     return filtered or raw
 
 
+_PREFIX_MIN_LEN = 5  # tokens >= this many chars get a prefix-wildcard fallback
+
+
+def _fts_count(expr):
+    try:
+        row = one(
+            "SELECT COUNT(*) AS n FROM cards_fts WHERE cards_fts MATCH ?",
+            (expr,),
+        )
+    except Exception:
+        return 0
+    return (row.get("n") or 0) if row else 0
+
+
+def _fts_best_probe_for(tok):
+    """Exact first; prefix fallback only for tokens long enough that the
+    morphology/typo tolerance outweighs the false-positive risk. Returns
+    (expr, hit_count) or (None, 0)."""
+    c = _fts_count(tok)
+    if c > 0:
+        return tok, c
+    if len(tok) >= _PREFIX_MIN_LEN:
+        expr = tok + "*"
+        c = _fts_count(expr)
+        if c > 0:
+            return expr, c
+    return None, 0
+
+
 def _fts_match_with_fallback(toks, *, min_hits=1):
-    """Build an FTS5 MATCH expression. Strict-AND only for multi-token queries.
+    """Build an FTS5 MATCH expression with precision-favoring fallbacks.
 
-    Returning `tok1* OR tok2* OR ...` for every query produces a flood of
-    false positives on multi-word names: "Marc Benioff" matched every card
-    containing "March" or "Marketing" because each token was OR'd as an
-    independent prefix wildcard.
+    Tiers (multi-token):
+      A: tok1 AND tok2 AND ...        strict AND of exact tokens
+      B: prefix-AND for tokens long enough to safely take a wildcard
+      C: drop zero-signal tokens, return the rarest non-empty one alone
+      D: None (honest empty)
 
-    Multi-token policy:
-      Tier A: `tok1 AND tok2 AND ...`     — exact tokens, all required
-      Tier B: `tok1* AND tok2* AND ...`   — prefix wildcards, all required
-                                            (typo / morphology tolerant)
-      Otherwise: return None — honest empty rather than misleading OR.
+    Single token: exact first, prefix fallback only for tokens >= 5 chars
+    so "Marc" doesn't match "March".
 
-    Single-token: just `tok*` (prefix). Returns None on empty token list.
+    Fixes:
+      "Marc" → no longer returns March/Marketing/Marcus (short token,
+        exact only).
+      "Marc Benioff" → no longer 0; Tier C drops the zero-signal "Marc"
+        and uses "Benioff" alone.
     """
     if not toks:
         return None
     if len(toks) == 1:
-        return toks[0] + "*"
-    candidates = [
-        " AND ".join(toks),
-        " AND ".join(t + "*" for t in toks),
-    ]
-    for expr in candidates:
-        try:
-            n = one(
-                "SELECT COUNT(*) AS n FROM cards_fts WHERE cards_fts MATCH ?",
-                (expr,),
-            )
-        except Exception:
-            continue
-        if n and (n.get("n") or 0) >= min_hits:
-            return expr
-    return None
+        expr, _ = _fts_best_probe_for(toks[0])
+        return expr
+    expr_a = " AND ".join(toks)
+    if _fts_count(expr_a) >= min_hits:
+        return expr_a
+    def maybe_prefix(t):
+        return t + "*" if len(t) >= _PREFIX_MIN_LEN else t
+    expr_b = " AND ".join(maybe_prefix(t) for t in toks)
+    if expr_b != expr_a and _fts_count(expr_b) >= min_hits:
+        return expr_b
+    individual = {}
+    for t in toks:
+        expr, cnt = _fts_best_probe_for(t)
+        if expr and cnt > 0:
+            individual[t] = (expr, cnt)
+    if not individual:
+        return None
+    best = min(individual, key=lambda t: individual[t][1])
+    return individual[best][0]
 
 
 def hydrate_card(c):

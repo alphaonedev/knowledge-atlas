@@ -350,49 +350,106 @@ def _fts_clean(q):
     return " ".join(t for t in _re.split(r"[^A-Za-z0-9]+", q or "") if t)
 
 
+_PREFIX_MIN_LEN = 5  # tokens >= this many chars get an optional prefix-wildcard
+                     # fallback. Below this, exact-only — keeps "Marc" from
+                     # matching "March", "Marketing", "Marcus" via marc*.
+
+
+def _fts_count(expr):
+    """COUNT(*) of cards_fts rows matching `expr`. 0 on any FTS5 syntax error."""
+    try:
+        row = one(
+            "SELECT COUNT(*) AS n FROM cards_fts WHERE cards_fts MATCH ?",
+            (expr,),
+        )
+    except Exception:
+        return 0
+    return (row.get("n") or 0) if row else 0
+
+
+def _fts_best_probe_for(tok):
+    """For a single token, return the FTS expression that matches it: exact
+    if available, prefix-wildcard fallback for tokens long enough that
+    morphology/typo tolerance is more useful than precision. Returns
+    (expr, hit_count) or (None, 0) if nothing matches."""
+    if _fts_count(tok) > 0:
+        return tok, _fts_count(tok)
+    if len(tok) >= _PREFIX_MIN_LEN:
+        expr = tok + "*"
+        c = _fts_count(expr)
+        if c > 0:
+            return expr, c
+    return None, 0
+
+
 def _fts_match_with_fallback(fq, *, min_hits=1):
-    """Build an FTS5 MATCH expression. Strict-AND only for multi-token queries.
+    """Build an FTS5 MATCH expression with precision-favoring fallbacks.
 
-    The legacy expansion `tok1* OR tok2* OR ...` returned a flood of false
-    positives on multi-word names. Searching "Marc Benioff" matched every
-    card containing "March" or "Marketing" because each token was OR'd as
-    an independent prefix wildcard.
+    Why the layering exists, reported failure cases this fixes:
 
-    Policy:
-      Multi-token (>=2 distinctive tokens):
-        Tier A: `tok1 AND tok2 AND ...`      — exact tokens, all required
-        Tier B: `tok1* AND tok2* AND ...`    — prefix wildcards, all required
-                                               (typo / morphology tolerant)
-        If both tiers return < min_hits, return None (an honest "no results")
-        rather than degrading to OR — false positives are worse than empty.
+      "Marc" → was returning March / Marketing / Marcus cards via marc*.
+        Short tokens (< _PREFIX_MIN_LEN chars) now only try exact match;
+        no prefix-wildcard expansion. Returns None if "marc" isn't in
+        any indexed field — honest empty.
 
-      Single token:
-        Just `tok*` — prefix wildcard. No OR semantics needed; if you typed
-        one word we honor it.
+      "Marc Benioff" → was returning 0 because strict-AND required both
+        "marc" and "benioff" in the same card and "marc" doesn't appear
+        anywhere. Tier C now probes each token individually, drops the
+        zero-signal ones, and falls back to the single most distinctive
+        token (lowest hit count, but > 0). On this query that drops
+        "marc" entirely and uses "benioff" → returns the Benioff cards.
 
-    The COUNT(*) probe is cheap on FTS5 and only runs until one tier passes.
-    Returns the MATCH expression to use, or None if no tier yielded hits.
+    Tiers (multi-token):
+      A: `tok1 AND tok2 AND ...`        exact tokens, all required
+      B: `tok1* AND tok2* AND ...`      prefix wildcards, all required
+                                        (only tokens >= _PREFIX_MIN_LEN
+                                        get the wildcard; shorter stay
+                                        exact to keep precision)
+      C: drop zero-signal tokens, keep the rarest non-empty one
+      D: None (honest empty)
+
+    Single token: exact first; if no hits AND token is long enough,
+    try prefix; otherwise None.
+
+    Returns the MATCH expression or None.
     """
     toks = [t for t in (fq or "").split() if len(t) > 2]
     if not toks:
         return None
+
     if len(toks) == 1:
-        return toks[0] + "*"
-    candidates = [
-        " AND ".join(toks),
-        " AND ".join(t + "*" for t in toks),
-    ]
-    for expr in candidates:
-        try:
-            n = one(
-                "SELECT COUNT(*) AS n FROM cards_fts WHERE cards_fts MATCH ?",
-                (expr,),
-            )
-        except Exception:
-            continue
-        if n and n.get("n", 0) >= min_hits:
-            return expr
-    return None  # no tier matched — honest empty rather than misleading OR
+        expr, _ = _fts_best_probe_for(toks[0])
+        return expr
+
+    # Tier A: strict AND of exact tokens. Porter stemmer handles plural /
+    # tense morphology, so "power constraints" plural still matches
+    # "constraint" singular without a wildcard.
+    expr_a = " AND ".join(toks)
+    if _fts_count(expr_a) >= min_hits:
+        return expr_a
+
+    # Tier B: prefix-AND, but only put a wildcard on tokens long enough
+    # that prefix matching is more likely a stem than a false-positive
+    # neighbor word.
+    def maybe_prefix(t):
+        return t + "*" if len(t) >= _PREFIX_MIN_LEN else t
+    expr_b = " AND ".join(maybe_prefix(t) for t in toks)
+    if expr_b != expr_a and _fts_count(expr_b) >= min_hits:
+        return expr_b
+
+    # Tier C: at least one token is contributing nothing useful. Find the
+    # rarest token that DOES match something and use it alone. This is the
+    # "Marc Benioff" case — "Marc" matches nothing, "Benioff" matches 9
+    # cards; the user clearly wants the Benioff cards.
+    individual = {}
+    for t in toks:
+        expr, cnt = _fts_best_probe_for(t)
+        if expr and cnt > 0:
+            individual[t] = (expr, cnt)
+    if not individual:
+        return None
+    best = min(individual, key=lambda t: individual[t][1])
+    return individual[best][0]
 
 
 @app.route("/api/search")
