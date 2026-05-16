@@ -861,6 +861,7 @@ function syncSidebarHighlight() {
   else if (view.type === "videos")   sel = '.nav-item[data-view="videos"]';
   else if (view.type === "sources")  sel = '.nav-item[data-view="sources"]';
   else if (view.type === "source")   sel = '.nav-item[data-view="sources"]';
+  else if (view.type === "video")    sel = '.nav-item[data-view="videos"]';
   else if (view.type === "coverage") sel = '.nav-item[data-view="coverage"]';
   else if (view.type === "kind")     sel = `.nav-item[data-kind="${view.value}"]`;
   else if (view.type === "category") {
@@ -913,13 +914,48 @@ function renderSidebar() {
   }));
 }
 
+// Every metadata element on a card is an exploration anchor: the kind pill
+// jumps to the kind-filter view, the category tag to the category view, the
+// video title to the per-video card view, and the source name to the source
+// detail. Pure hash anchors — the existing hashchange handler dispatches them
+// through render() so no extra click wiring is needed.
+function cardMetaHTML(c) {
+  const kindLink = `<a href="#kind/${c.kind}" class="kind-pill kind-${c.kind}"
+                       title="See all ${c.kind.replace('_',' ')} cards">${c.kind.replace('_',' ')}</a>`;
+  const catLink  = c.category
+    ? `<a href="#category/${encodeURIComponent(c.category)}" class="category-tag"
+          title="Open topic '${escapeHtml(c.category)}'">${escapeHtml(c.category)}</a>`
+    : "";
+  return `<div class="card-meta">${kindLink}${catLink}</div>`;
+}
+
+function cardSourceHTML(c) {
+  const parts = [];
+  if (c.video_id && c.video_title) {
+    parts.push(`<a href="#video/${encodeURIComponent(c.video_id)}"
+                   title="See all cards from this video">${escapeHtml(c.video_title)}</a>`);
+  } else if (c.video_url) {
+    parts.push(`<a href="${escapeHtml(c.video_url)}" target="_blank" rel="noopener">source</a>`);
+  }
+  if (c.source_id) {
+    const label = escapeHtml(c.source_name || c.source_id);
+    parts.push(`<span class="muted">·</span>
+                <a href="#source/${encodeURIComponent(c.source_id)}"
+                   class="muted" style="text-decoration:underline; text-decoration-style:dotted;"
+                   title="View only this source's cards">${label}</a>`);
+  }
+  if (c.video_url) {
+    parts.push(`<span class="muted">·</span>
+                <a href="${escapeHtml(c.video_url)}" target="_blank" rel="noopener"
+                   class="muted" title="Open on YouTube">YouTube ↗</a>`);
+  }
+  return parts.length ? `<div class="card-source">${parts.join(" ")}</div>` : "";
+}
+
 function cardHTML(c) {
   return `
     <article class="card kind--${c.kind}">
-      <div class="card-meta">
-        <span class="kind-pill kind-${c.kind}">${c.kind.replace("_"," ")}</span>
-        ${c.category ? `<span class="category-tag">${escapeHtml(c.category)}</span>` : ""}
-      </div>
+      ${cardMetaHTML(c)}
       <h3 class="card-title">${escapeHtml(c.title)}</h3>
       <div class="card-content">${escapeHtml(c.content)}</div>
       ${c.framework_steps && c.framework_steps.length ? `
@@ -929,9 +965,7 @@ function cardHTML(c) {
       ` : ""}
       ${c.reasoning ? `<div class="card-reasoning">${escapeHtml(c.reasoning)}</div>` : ""}
       ${c.source_quote ? `<div class="card-quote">${escapeHtml(c.source_quote)}</div>` : ""}
-      <div class="card-source">
-        <a href="${c.video_url}" target="_blank">${escapeHtml(c.video_title || "source")}</a>
-      </div>
+      ${cardSourceHTML(c)}
     </article>
   `;
 }
@@ -939,10 +973,7 @@ function cardHTML(c) {
 function searchCardHTML(c) {
   return `
     <article class="card kind--${c.kind}">
-      <div class="card-meta">
-        <span class="kind-pill kind-${c.kind}">${c.kind.replace("_"," ")}</span>
-        ${c.category ? `<span class="category-tag">${escapeHtml(c.category)}</span>` : ""}
-      </div>
+      ${cardMetaHTML(c)}
       <h3 class="card-title">${escapeHtml(c.title)}</h3>
       <div class="card-content">${escapeHtml(c.content)}</div>
       ${c.snippet ? `<div class="card-content" style="margin-top:10px;font-size:13px;color:var(--muted);">${c.snippet}</div>` : ""}
@@ -952,9 +983,7 @@ function searchCardHTML(c) {
         </ol>
       ` : ""}
       ${c.reasoning ? `<div class="card-reasoning">${escapeHtml(c.reasoning)}</div>` : ""}
-      <div class="card-source">
-        <a href="${c.video_url}" target="_blank">${escapeHtml(c.video_title || "source")}</a>
-      </div>
+      ${cardSourceHTML(c)}
     </article>
   `;
 }
@@ -1304,6 +1333,48 @@ async function renderVideos() {
   }));
 }
 
+// Per-video card view. Reachable via #video/<id> from any card's source line.
+// Renders just that video's cards using the same grouped-by-kind layout the
+// rest of the dashboard uses, plus a breadcrumb back to the source.
+async function renderVideo(vid) {
+  const v = await J("/api/video/" + encodeURIComponent(vid));
+  const breadcrumb = v.source_id
+    ? `<a href="#source/${encodeURIComponent(v.source_id)}" style="color:inherit; text-decoration:none;">← ${escapeHtml(v.source_id)}</a>`
+    : "← Video";
+  // Render header + cards. Cards use cardHTML so their meta-pills and source
+  // line are themselves clickable (kind, category, this same video link, source).
+  const groups = {};
+  (v.cards || []).forEach(c => {
+    // /api/video doesn't return video_title/url on each card row; the cards
+    // come from the parent video, so re-attach those fields so cardSourceHTML
+    // renders the YouTube link.
+    c.video_id = v.id;
+    c.video_title = v.title;
+    c.video_url = v.url;
+    c.source_id = v.source_id;
+    (groups[c.kind] = groups[c.kind] || []).push(c);
+  });
+  const ordered = KIND_ORDER.filter(k => groups[k]);
+  $("#main").innerHTML = `
+    <div class="section-head">
+      <div class="kicker">${breadcrumb}</div>
+      <h2>${escapeHtml(v.title)}</h2>
+      ${v.one_line ? `<p class="muted" style="margin:6px 0 0; font-size:14px;">${escapeHtml(v.one_line)}</p>` : ""}
+      <div class="meta">
+        ${(v.cards || []).length} card${(v.cards || []).length===1?"":"s"} across ${ordered.length} kind${ordered.length===1?"":"s"}
+        ${v.url ? ` · <a href="${escapeHtml(v.url)}" target="_blank" rel="noopener">Watch on YouTube ↗</a>` : ""}
+      </div>
+    </div>
+  ` + ordered.map(k => `
+    <div class="kind-group-head">
+      <span class="dot kind-${k}"></span>
+      <span class="label">${k.replace("_"," ")}</span>
+      <span class="count">${groups[k].length}</span>
+      <span class="rule"></span>
+    </div>
+  ` + groups[k].map(cardHTML).join("")).join("");
+}
+
 async function renderSearch(q) {
   const hits = await J("/api/search?q=" + encodeURIComponent(q));
   if (!hits.length) {
@@ -1324,6 +1395,7 @@ async function render() {
   if (view.type === "videos")   return renderVideos();
   if (view.type === "sources")  return renderSources();
   if (view.type === "source")   return renderSource(view.value);
+  if (view.type === "video")    return renderVideo(view.value);
   if (view.type === "coverage") return renderCoverage();
   if (view.type === "kind")     return renderKind(view.value);
   if (view.type === "category") return renderCategory(view.value);
