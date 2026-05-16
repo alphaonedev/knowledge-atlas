@@ -409,8 +409,9 @@ def api_search():
         return jsonify([])
     hits = rows("""
         SELECT f.card_id AS id, c.kind, c.category, c.title, c.content,
-               c.reasoning, c.source_quote, c.video_id,
+               c.reasoning, c.source_quote, c.video_id, c.source_id,
                v.title AS video_title, v.url AS video_url,
+               (SELECT name FROM sources WHERE id = c.source_id) AS source_name,
                f.snippet, f.score
         FROM (
           SELECT card_id,
