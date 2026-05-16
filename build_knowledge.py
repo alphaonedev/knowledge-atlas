@@ -111,8 +111,14 @@ def main():
     CREATE INDEX idx_cards_source ON cards(source_id);
     CREATE INDEX idx_vc_cat ON video_categories(category);
 
+    -- video_title is included so searches for entities the LLM stripped
+    -- during paraphrasing still surface cards from videos whose YouTube
+    -- title contains the entity (e.g. searching "Benioff" finds the
+    -- "Trump-Xi Summit, Benioff: ..." episode's cards even though the
+    -- paraphrased card texts don't mention his name).
     CREATE VIRTUAL TABLE cards_fts USING fts5(
-      card_id UNINDEXED, title, content, reasoning, source_quote,
+      card_id UNINDEXED,
+      title, content, reasoning, source_quote, video_title,
       tokenize='porter unicode61'
     );
     """)
@@ -195,10 +201,12 @@ def main():
                             (card_id, i, step))
 
             cur.execute("""
-                INSERT INTO cards_fts(card_id, title, content, reasoning, source_quote)
-                VALUES (?,?,?,?,?)
+                INSERT INTO cards_fts(card_id, title, content, reasoning,
+                                     source_quote, video_title)
+                VALUES (?,?,?,?,?,?)
             """, (card_id, c.get("title", ""), c.get("content", ""),
-                  c.get("reasoning") or "", c.get("source_quote") or ""))
+                  c.get("reasoning") or "", c.get("source_quote") or "",
+                  summary.get("video_title") or ""))
 
             total_cards += 1
             kind_counts[kind] += 1
