@@ -630,6 +630,14 @@
 
     <div id="ingest-progress" style="display:none;">
 
+      <!-- Completion summary banner — only visible when job reaches a terminal
+           state (done / awaiting_extraction / error / cancelled). Plain
+           English summary of what actually happened so the user doesn't have
+           to read the per-phase table to find out whether xAI ran, was a
+           no-op, or was skipped. -->
+      <div id="prog-completion-banner" style="display:none; margin-bottom:18px; padding:14px 16px;
+           border-radius:10px; border:1px solid var(--border); font-size:13px; line-height:1.5;"></div>
+
       <!-- High-level status line -->
       <div style="margin-bottom:8px; font-size:13px; display:flex; align-items:center; gap:8px;">
         <span id="prog-step" class="pill kind-principle">starting…</span>
@@ -1630,6 +1638,8 @@ $("#submit-ingest").addEventListener("click", async () => {
   $("#prog-bar").style.width = "2%";
   $("#prog-step").textContent = "queued";
   $("#prog-msg").textContent = "Submitting…";
+  // Hide any banner left over from a previous job.
+  $("#prog-completion-banner").style.display = "none";
 
   const r = await fetch("/api/ingest", {
     method: "POST",
@@ -2000,6 +2010,148 @@ function computeOverallPercent(s) {
   return Math.min(99, Math.round(pct));
 }
 
+// Friendly labels for provider ids so the completion banner reads as
+// "xAI Grok" rather than the bare slug.
+const PROVIDER_LABELS = {
+  xai:       "xAI Grok",
+  anthropic: "Anthropic Claude",
+  openai:    "OpenAI",
+};
+
+function _providerLabel(provider, model) {
+  const base = PROVIDER_LABELS[provider] || provider || "the configured LLM";
+  return model ? `${base} (<code style="font-size:11px;">${escapeHtml(model)}</code>)` : base;
+}
+
+// Render the terminal-state summary banner. The job status carries enough
+// to distinguish four cases:
+//
+//   done + extract.summary.cards > 0      → real work happened
+//   done + extract.summary.reason == "all-cached" → up-to-date no-op
+//   awaiting_extraction                   → transcripts in, extract skipped
+//   error / cancelled                     → failure modes
+//
+// The banner is the "what just happened, in one sentence" element the
+// user reads instead of parsing the phase table or the streaming log.
+function renderCompletionBanner(s) {
+  const el = $("#prog-completion-banner");
+  if (!el) return;
+  const status = s.status;
+  if (!["done", "awaiting_extraction", "error", "cancelled"].includes(status)) {
+    el.style.display = "none";
+    return;
+  }
+
+  const phases  = s.phases || {};
+  const fetch   = phases.fetch    || {};
+  const extract = phases.extract  || {};
+  const aggr    = phases.aggregate|| {};
+  const fSum = fetch.summary || {};
+  const xSum = extract.summary || {};
+  const aSum = aggr.summary || {};
+
+  const fetched = fSum.fetched || 0;
+  const cached  = fSum.cached  || 0;
+  const skipped = fSum.no_subs || 0;
+  const failed  = fSum.failed  || 0;
+  const cardsAdded   = xSum.cards  || 0;
+  const videosWorked = xSum.videos || 0;
+  const allCached    = xSum.reason === "all-cached";
+
+  const provider = extract.provider || s.provider;
+  const model    = extract.model    || s.model;
+  const providerLabel = _providerLabel(provider, model);
+
+  // Source-detail link — visible on every terminal state except error
+  const sid = s.source_id;
+  const sourceLink = (sid && status !== "error")
+    ? `<a href="#source/${encodeURIComponent(sid)}"
+          onclick="closeModal(); location.reload();"
+          style="display:inline-block; margin-top:10px; padding:6px 12px;
+                 background:var(--accent); color:white; border-radius:6px;
+                 text-decoration:none; font-weight:600; font-size:12px;">
+        View ${escapeHtml(sid)} →
+      </a>`
+    : "";
+
+  let icon, title, body, bg, bd;
+
+  if (status === "error") {
+    icon = "✗"; bg = "#fde7e7"; bd = "#f3bcbc";
+    title = "Refresh failed";
+    body = `<div>${escapeHtml(s.error || s.message || "Unknown error")}</div>`;
+
+  } else if (status === "cancelled") {
+    icon = "⏸"; bg = "#fff4d9"; bd = "#e9c97a";
+    title = "Refresh stopped";
+    body = `<div>Partial work was preserved on disk. Re-running this refresh
+            will resume idempotently — cached transcripts and existing card
+            JSON are skipped automatically.</div>`;
+
+  } else if (status === "awaiting_extraction") {
+    icon = "⚠"; bg = "#fff4d9"; bd = "#e9c97a";
+    title = "Transcripts ready — extraction skipped";
+    body = `
+      <div><b>${fetched + cached}</b> transcript${fetched + cached === 1 ? "" : "s"} on disk
+        ${fetched ? `(${fetched} new${cached ? `, ${cached} already cached` : ""})` : `(all already cached)`}.</div>
+      <div style="margin-top:4px;">${providerLabel} extraction was skipped — no API key configured for this provider.</div>
+      <div class="muted" style="margin-top:6px; font-size:12px;">
+        Add a key in the modal's <b>Extraction provider</b> section and re-run, or use Claude Desktop to run
+        <code>extract_knowledge.py --source ${escapeHtml(sid || "<id>")}</code>.
+      </div>`;
+
+  } else if (allCached && fetched === 0) {
+    // Pure no-op: nothing fetched, nothing extracted
+    icon = "✓"; bg = "#e3f6e8"; bd = "#a9d8b3";
+    title = "Nothing new — atlas is current";
+    const totalSeen = (fSum.total != null) ? fSum.total : (cached + fetched + skipped);
+    body = `
+      <div>No videos found in the time window matched anything we don't already have.</div>
+      <div style="margin-top:4px;">${providerLabel} was invoked and correctly returned <b>nothing pending</b> — all transcripts already had extracted cards.</div>
+      ${aSum.cards ? `<div class="muted" style="margin-top:6px; font-size:12px;">Atlas-wide totals: ${aSum.videos || 0} videos · ${aSum.cards || 0} cards · ${aSum.categories || 0} topics.</div>` : ""}
+      ${sourceLink}`;
+
+  } else if (cardsAdded > 0) {
+    // Real work: new cards extracted
+    icon = "✓"; bg = "#e3f6e8"; bd = "#a9d8b3";
+    title = "Refresh complete — new knowledge added";
+    body = `
+      <div>
+        <b>${fetched}</b> new transcript${fetched === 1 ? "" : "s"} fetched
+        ${cached ? `· <span class="muted">${cached} already cached</span>` : ""}
+        ${skipped ? `· <span class="muted">${skipped} skipped</span>` : ""}
+      </div>
+      <div style="margin-top:4px;">${providerLabel} extracted <b>${cardsAdded}</b> card${cardsAdded === 1 ? "" : "s"} across <b>${videosWorked}</b> video${videosWorked === 1 ? "" : "s"}.</div>
+      ${aSum.cards ? `<div class="muted" style="margin-top:6px; font-size:12px;">Atlas-wide totals after rebuild: ${aSum.videos || 0} videos · ${aSum.cards || 0} cards · ${aSum.categories || 0} topics.</div>` : ""}
+      ${sourceLink}`;
+
+  } else {
+    // Done with no new fetches and no extraction (e.g. window empty)
+    icon = "✓"; bg = "#e3f6e8"; bd = "#a9d8b3";
+    title = "Refresh complete";
+    body = `
+      <div>No new videos in the time window. Nothing to fetch, nothing to extract.</div>
+      ${aSum.cards ? `<div class="muted" style="margin-top:6px; font-size:12px;">Atlas-wide totals: ${aSum.videos || 0} videos · ${aSum.cards || 0} cards · ${aSum.categories || 0} topics.</div>` : ""}
+      ${sourceLink}`;
+  }
+
+  if (failed > 0) {
+    body += `<div style="margin-top:8px; color:var(--warning); font-size:12px;">⚠ ${failed} video${failed === 1 ? "" : "s"} failed to fetch — check the log below.</div>`;
+  }
+
+  el.style.background = bg;
+  el.style.borderColor = bd;
+  el.innerHTML = `
+    <div style="display:flex; align-items:flex-start; gap:10px;">
+      <span style="font-size:22px; line-height:1; font-weight:700;">${icon}</span>
+      <div style="flex:1;">
+        <div style="font-weight:700; font-size:14px; margin-bottom:4px;">${title}</div>
+        ${body}
+      </div>
+    </div>`;
+  el.style.display = "block";
+}
+
 async function pollIngest(job_id) {
   let lastLogLen = 0;
   while (true) {
@@ -2063,6 +2215,10 @@ async function pollIngest(job_id) {
     }
 
     if (isTerminal) {
+      // Show the plain-English summary so the user doesn't have to read the
+      // phase table or the streaming log to find out what actually happened.
+      renderCompletionBanner(s);
+
       $("#prog-stop").style.display = "none";
       $("#prog-close").style.display = "inline-block";
       $("#prog-close").textContent =
