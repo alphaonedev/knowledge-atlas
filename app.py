@@ -19,11 +19,11 @@ import sys
 import threading
 import time
 import uuid
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-from flask import Flask, jsonify, request, render_template, send_from_directory, abort
+from flask import Flask, jsonify, request, render_template, send_from_directory, send_file, abort, Response
 
 ROOT = Path(__file__).resolve().parent
 DB_PATH = ROOT / "data" / "knowledge.db"
@@ -943,6 +943,95 @@ def ai_cross_compendium(category):
 @app.route("/export/<path:filename>")
 def export(filename):
     return send_from_directory(str(ROOT / "data" / "export"), filename)
+
+
+def _build_source_subset(atlas, source_id):
+    """Extract a single-source slice of the full atlas export, recomputing
+    cards_by_kind / cards_by_category for just that source's cards plus the
+    per-source totals. Used by both /api/export?source_id= and atlas.py
+    export --source."""
+    cards = (atlas.get("cards_by_source") or {}).get(source_id, [])
+    by_kind, by_cat = {}, {}
+    for c in cards:
+        by_kind.setdefault(c.get("kind") or "unknown", []).append(c)
+        by_cat.setdefault(c.get("category") or "general", []).append(c)
+    src_records = [s for s in atlas.get("sources", []) if s.get("id") == source_id]
+    videos = [v for v in atlas.get("videos", []) if v.get("source_id") == source_id]
+    return {
+        "manifest": {
+            **(atlas.get("manifest") or {}),
+            "filtered_to_source": source_id,
+            "totals": {
+                "sources": 1,
+                "videos": len(videos),
+                "cards": len(cards),
+                "categories": len(by_cat),
+                "kind_counts": {k: len(v) for k, v in by_kind.items()},
+                "category_counts": {k: len(v) for k, v in by_cat.items()},
+            },
+        },
+        "sources": src_records,
+        "videos": videos,
+        "cards_by_kind": by_kind,
+        "cards_by_category": by_cat,
+        "cards_by_source": {source_id: cards},
+        "source": src_records[0] if src_records else None,  # back-compat alias
+    }
+
+
+@app.route("/api/export")
+def api_export():
+    """Download the unified atlas as JSON.
+
+    Query params:
+      source_id=<sid>   Filter the export to a single source. Cards from
+                        other sources are excluded; manifest.totals is
+                        recomputed; manifest.filtered_to_source records
+                        the filter for downstream consumers.
+
+    Response headers force a download with a date-stamped filename so
+    browsers don't try to render a 6+ MB JSON blob inline.
+    """
+    export_path = ROOT / "data" / "export" / "knowledge_atlas.json"
+    if not export_path.exists():
+        return jsonify({
+            "error": "Export not generated yet — run `python3 build_knowledge.py`.",
+        }), 404
+
+    today = datetime.utcnow().strftime("%Y%m%d")
+    source_id = (request.args.get("source_id") or "").strip() or None
+
+    if not source_id:
+        # Whole-corpus export — stream the file directly, no JSON parse needed.
+        return send_file(
+            export_path,
+            mimetype="application/json",
+            as_attachment=True,
+            download_name=f"knowledge_atlas_{today}.json",
+            conditional=True,
+        )
+
+    # Per-source filter — validate the id then build a subset on the fly.
+    if not one("SELECT id FROM sources WHERE id=?", (source_id,)):
+        return jsonify({
+            "error": f"Unknown source_id `{source_id}`. "
+                     f"Call /ai/sources to see valid ids.",
+        }), 404
+    try:
+        atlas = json.loads(export_path.read_text())
+    except Exception as e:
+        return jsonify({"error": f"Could not parse export file: {e}"}), 500
+    subset = _build_source_subset(atlas, source_id)
+    body = json.dumps(subset, indent=2, default=str)
+    return Response(
+        body,
+        mimetype="application/json",
+        headers={
+            "Content-Disposition":
+                f'attachment; filename="knowledge_atlas_{source_id}_{today}.json"',
+            "Content-Length": str(len(body.encode("utf-8"))),
+        },
+    )
 
 
 # ============================================================================
