@@ -1047,6 +1047,17 @@ async function renderSources() {
       <div class="kicker">Library</div>
       <h2>Indexed experts</h2>
       <div class="meta">${sources.length} expert${sources.length === 1 ? "" : "s"} · each contributes paraphrased knowledge cards to the same atlas</div>
+      <div style="margin-top:12px;">
+        <a href="/api/export" download
+           class="btn-export"
+           title="Download the entire atlas as a single JSON file (sources, videos, cards, manifest with totals)"
+           style="display:inline-flex; align-items:center; gap:6px;
+                  padding:6px 12px; border-radius:6px; border:1px solid var(--border);
+                  background:var(--panel); color:var(--text); text-decoration:none;
+                  font:600 12px inherit; cursor:pointer;">
+          ↓ Export atlas (JSON)
+        </a>
+      </div>
     </div>
     ` + sources.map(s => `
       <article class="card source-card" data-source-id="${escapeHtml(s.id)}"
@@ -1199,6 +1210,14 @@ async function renderSource(sid) {
                 style="background:var(--accent); color:white; border:0; padding:7px 14px; border-radius:6px; cursor:pointer; font:600 12px inherit;">
           ↻ Refresh — pull net-new videos
         </button>
+        <a href="/api/export?source_id=${encodeURIComponent(s.id)}" download
+           title="Download just ${escapeHtml(s.name || s.id)}'s cards as JSON"
+           style="display:inline-flex; align-items:center; padding:7px 14px;
+                  border-radius:6px; border:1px solid var(--border);
+                  background:var(--panel); color:var(--text);
+                  text-decoration:none; font:600 12px inherit;">
+          ↓ Export this source
+        </a>
       </div>
       ${Object.keys(kindsTotal).length ? renderKindBar(kindsTotal) : ""}
       ${topCats.length ? `

@@ -22,6 +22,10 @@ Usage:
     python3 atlas.py logs           # tail the server log (default 50 lines)
     python3 atlas.py logs -n 200    # tail more lines
     python3 atlas.py logs -f        # follow (Ctrl-C to exit)
+    python3 atlas.py export                          # full atlas JSON to stdout
+    python3 atlas.py export -o atlas.json            # full atlas JSON to a file
+    python3 atlas.py export --source allin -o a.json # one source only
+    python3 atlas.py export --rebuild -o atlas.json  # rebuild first, then dump
 
 State files (gitignored):
     data/atlas.pid                  PID of the running Flask server
@@ -284,6 +288,94 @@ def cmd_status():
     return 0
 
 
+def cmd_export(args):
+    """Dump the unified atlas as JSON, either to stdout or a file.
+
+    No service needs to be running — the export reads `data/export/knowledge_atlas.json`
+    directly (rebuilt every time `build_knowledge.py` runs, which the ingest
+    pipeline does after every refresh). Pass --rebuild to force a fresh build
+    before dumping.
+    """
+    export_path = DATA_DIR / "export" / "knowledge_atlas.json"
+
+    if args.rebuild or not export_path.exists():
+        if not export_path.exists():
+            print(f"{DIM}no export on disk yet — running build_knowledge.py…{RESET}",
+                  file=sys.stderr)
+        else:
+            print(f"{DIM}--rebuild: regenerating export via build_knowledge.py…{RESET}",
+                  file=sys.stderr)
+        r = subprocess.run(
+            [sys.executable, str(ROOT / "build_knowledge.py")],
+            cwd=str(ROOT),
+        )
+        if r.returncode != 0:
+            print(f"{RED}✗ build_knowledge.py exited {r.returncode}{RESET}",
+                  file=sys.stderr)
+            return r.returncode
+
+    if not export_path.exists():
+        print(f"{RED}✗ Export file not found at {export_path}{RESET}", file=sys.stderr)
+        return 1
+
+    raw = export_path.read_text(encoding="utf-8")
+
+    # Per-source filter — parse, slice, re-serialize.
+    if args.source:
+        try:
+            atlas = json.loads(raw)
+        except Exception as e:
+            print(f"{RED}✗ Could not parse export: {e}{RESET}", file=sys.stderr)
+            return 1
+        sids = sorted((atlas.get("cards_by_source") or {}).keys())
+        if args.source not in sids:
+            print(f"{RED}✗ Unknown source_id `{args.source}`{RESET}", file=sys.stderr)
+            print(f"  Available: {sids}", file=sys.stderr)
+            return 1
+        cards = atlas["cards_by_source"][args.source]
+        by_kind, by_cat = {}, {}
+        for c in cards:
+            by_kind.setdefault(c.get("kind") or "unknown", []).append(c)
+            by_cat.setdefault(c.get("category") or "general", []).append(c)
+        src_records = [s for s in atlas.get("sources", []) if s.get("id") == args.source]
+        videos = [v for v in atlas.get("videos", []) if v.get("source_id") == args.source]
+        subset = {
+            "manifest": {
+                **(atlas.get("manifest") or {}),
+                "filtered_to_source": args.source,
+                "totals": {
+                    "sources": 1,
+                    "videos": len(videos),
+                    "cards": len(cards),
+                    "categories": len(by_cat),
+                    "kind_counts": {k: len(v) for k, v in by_kind.items()},
+                    "category_counts": {k: len(v) for k, v in by_cat.items()},
+                },
+            },
+            "sources": src_records,
+            "videos": videos,
+            "cards_by_kind": by_kind,
+            "cards_by_category": by_cat,
+            "cards_by_source": {args.source: cards},
+            "source": src_records[0] if src_records else None,
+        }
+        raw = json.dumps(subset, indent=2, default=str)
+
+    if args.output:
+        out = Path(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(raw, encoding="utf-8")
+        size_mb = len(raw) / 1024 / 1024
+        scope = f"source `{args.source}`" if args.source else "full atlas"
+        print(f"{GREEN}✓ Wrote {scope} as JSON ({size_mb:.2f} MB) to {out}{RESET}",
+              file=sys.stderr)
+    else:
+        sys.stdout.write(raw)
+        if not raw.endswith("\n"):
+            sys.stdout.write("\n")
+    return 0
+
+
 def cmd_logs(args):
     if not LOG_FILE.exists():
         print(f"{DIM}no log file yet at {LOG_FILE}{RESET}")
@@ -316,6 +408,14 @@ def main():
     p_logs.add_argument("-n", type=int, default=50, help="number of lines (default 50)")
     p_logs.add_argument("-f", "--follow", action="store_true",
                         help="follow the log (like tail -f)")
+    p_export = sub.add_parser("export",
+        help="Export the atlas as JSON to stdout or a file.")
+    p_export.add_argument("-o", "--output",
+        help="Write to this file instead of stdout.")
+    p_export.add_argument("--source",
+        help="Filter to a single source_id (default: full corpus).")
+    p_export.add_argument("--rebuild", action="store_true",
+        help="Run build_knowledge.py first to regenerate the export file.")
     args = ap.parse_args()
 
     if args.cmd == "start":   return cmd_start()
@@ -323,6 +423,7 @@ def main():
     if args.cmd == "restart": return cmd_restart()
     if args.cmd == "status":  return cmd_status()
     if args.cmd == "logs":    return cmd_logs(args)
+    if args.cmd == "export":  return cmd_export(args)
     return 1
 
 

@@ -214,12 +214,38 @@ def main():
 
     con.commit()
 
-    # JSON exports
+    # JSON exports — multi-source shape. The legacy "source" key (singular)
+    # is preserved as an alias to sources[0] so older consumers don't break,
+    # but new consumers should read "sources" (plural) and the per-source
+    # groupings under cards_by_source / videos[].source_id.
     atlas = {
-        "source": sources[0] if sources else None,
-        "videos": list(summaries.values()),
+        "manifest": {
+            "schema_version": "2.0",
+            "exported_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+            "generator": "knowledge-atlas build_knowledge.py",
+            "license": ("transcripts derived from public YouTube auto-captions; "
+                        "cards are LLM-paraphrased standalone knowledge"),
+            "totals": {
+                "sources": len(sources),
+                "videos": len(summaries),
+                "cards": total_cards,
+                "categories": len(category_counts),
+                "kind_counts": dict(kind_counts),
+                "category_counts": dict(category_counts),
+            },
+        },
+        "sources": sources,
+        "videos": [
+            {**v, "source_id": video_to_source.get(vid, fallback_source)}
+            for vid, v in summaries.items()
+        ],
         "cards_by_category": defaultdict(list),
-        "cards_by_kind": defaultdict(list),
+        "cards_by_kind":     defaultdict(list),
+        "cards_by_source":   defaultdict(list),
+        # Back-compat alias; deprecated — new consumers should use "sources".
+        "source": sources[0] if sources else None,
+        # Back-compat alias for the old top-level "totals" — kept identical
+        # shape so any consumer reading atlas["totals"] still works.
         "totals": {
             "videos": len(summaries),
             "cards": total_cards,
@@ -229,7 +255,8 @@ def main():
     }
     all_cards = [dict(r) for r in cur.execute("""
         SELECT c.id, c.kind, c.category, c.title, c.content, c.reasoning,
-               c.source_quote, c.video_id, v.title AS video_title, v.url AS video_url
+               c.source_quote, c.video_id, c.source_id,
+               v.title AS video_title, v.url AS video_url
         FROM cards c JOIN videos v ON v.id = c.video_id
     """).fetchall()]
     cur2 = con.cursor()
@@ -242,9 +269,11 @@ def main():
         ]
         atlas["cards_by_category"][d["category"]].append(d)
         atlas["cards_by_kind"][d["kind"]].append(d)
+        atlas["cards_by_source"][d["source_id"] or fallback_source].append(d)
 
     atlas["cards_by_category"] = dict(atlas["cards_by_category"])
-    atlas["cards_by_kind"] = dict(atlas["cards_by_kind"])
+    atlas["cards_by_kind"]     = dict(atlas["cards_by_kind"])
+    atlas["cards_by_source"]   = dict(atlas["cards_by_source"])
 
     (EXPORT / "knowledge_atlas.json").write_text(
         json.dumps(atlas, indent=2, default=str), encoding="utf-8")
