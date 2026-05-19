@@ -9,6 +9,7 @@ Run:
     # then open http://127.0.0.1:5179/
 """
 
+import contextlib
 import json
 import os
 import re
@@ -39,6 +40,48 @@ ENV_FILE = ROOT / ".env"
 #   proc:   the currently-running subprocess.Popen (so cancel can terminate it)
 JOBS = {}
 JOBS_LOCK = threading.Lock()
+
+
+# ----- Concurrency: two threading locks serialize the shared-state writes
+# that two simultaneous ingests could otherwise corrupt. Without these, two
+# refreshes triggered from two browser windows can:
+#
+#   (a) clobber each other's source registration — both threads read the
+#       same sources.json, both write, last writer wins, first source's
+#       record silently lost
+#   (b) corrupt knowledge.db — build_knowledge.py drops the DB file and
+#       recreates the schema, so two concurrent invocations race on file
+#       creation and schema setup
+#   (c) produce a half-written knowledge_atlas.json export
+#
+# In-Flask concurrency (Waitress threads serving the dashboard) is the
+# common case and these locks fully cover it. Cross-PROCESS concurrency
+# (someone running `python3 build_knowledge.py` from a terminal while
+# Flask is also rebuilding) would need an fcntl flock on a sentinel
+# file — not added here, but the build is fast enough that hitting that
+# race in practice requires deliberate effort.
+_SOURCES_FILE_LOCK = threading.Lock()
+_AGGREGATE_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def _sources_file_atomic_rmw():
+    """Atomically read-modify-write sources.json under a thread lock.
+
+    The yielded `doc` is the parsed JSON; mutate it in place. On clean
+    exit it is serialized back via a tempfile-rename for crash safety —
+    a kill mid-write leaves the prior good file intact rather than a
+    truncated half-JSON.
+
+        with _sources_file_atomic_rmw() as doc:
+            doc.setdefault("sources", []).append({...})
+    """
+    with _SOURCES_FILE_LOCK:
+        doc = json.loads(SOURCES_PATH.read_text())
+        yield doc
+        tmp = SOURCES_PATH.with_suffix(SOURCES_PATH.suffix + ".tmp")
+        tmp.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+        os.replace(tmp, SOURCES_PATH)
 
 
 def _job_set(job_id, **fields):
@@ -1229,23 +1272,24 @@ def _ingest_pipeline(job_id, payload):
 
         _job_set(job_id, status="running", step="register", percent=2,
                  message="Registering source", source_id=sid)
-        # 1. upsert source in sources.json
-        doc = json.loads(SOURCES_PATH.read_text())
-        sources = doc.setdefault("sources", [])
-        existing = next((s for s in sources if s["id"] == sid), None)
-        record = {
-            "id": sid, "name": name, "kind": "youtube_channel",
-            "url": url, "domain": domain, "expertise": expertise,
-            "language": "en",
-            "first_indexed": (existing or {}).get("first_indexed") or str(date.today()),
-            "license": "transcripts derived from public YouTube auto-captions",
-            "trust_notes": "",
-        }
-        if existing:
-            existing.update(record)
-        else:
-            sources.append(record)
-        SOURCES_PATH.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+        # 1. upsert source in sources.json — atomic read-modify-write under
+        # _SOURCES_FILE_LOCK so two concurrent ingests don't clobber each
+        # other's registration.
+        with _sources_file_atomic_rmw() as doc:
+            sources = doc.setdefault("sources", [])
+            existing = next((s for s in sources if s["id"] == sid), None)
+            record = {
+                "id": sid, "name": name, "kind": "youtube_channel",
+                "url": url, "domain": domain, "expertise": expertise,
+                "language": "en",
+                "first_indexed": (existing or {}).get("first_indexed") or str(date.today()),
+                "license": "transcripts derived from public YouTube auto-captions",
+                "trust_notes": "",
+            }
+            if existing:
+                existing.update(record)
+            else:
+                sources.append(record)
         _job_log(job_id, f"source '{sid}' registered")
 
         # 2. fetch transcripts
@@ -1273,12 +1317,13 @@ def _ingest_pipeline(job_id, payload):
         if txt_count == 0:
             # Roll back the registry entry we just wrote — a source with no
             # transcripts on disk is worse than no source at all (it
-            # misattributes every later "By source" report).
+            # misattributes every later "By source" report). Same lock as
+            # the upsert above so the rollback can't race with another
+            # ingest's upsert.
             try:
-                doc = json.loads(SOURCES_PATH.read_text())
-                doc["sources"] = [s for s in doc.get("sources", [])
-                                  if s.get("id") != sid]
-                SOURCES_PATH.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+                with _sources_file_atomic_rmw() as doc:
+                    doc["sources"] = [s for s in doc.get("sources", [])
+                                      if s.get("id") != sid]
                 _job_log(job_id, f"rolled back sources.json entry for '{sid}'")
             except Exception as _e:
                 _job_log(job_id, f"WARN: couldn't roll back sources.json: {_e}")
@@ -1321,12 +1366,27 @@ def _ingest_pipeline(job_id, payload):
         if _job_is_cancelled(job_id):
             raise _Cancelled()
 
-        # 4. rebuild unified atlas
+        # 4. rebuild unified atlas — serialized across concurrent jobs.
+        # build_knowledge.py drops the entire knowledge.db file and
+        # recreates the schema; two of these running at the same time
+        # would race on the file and corrupt it. The lock makes a second
+        # job wait here while the first finishes its rebuild (typically
+        # under a second). Fetch and extract above can still run in
+        # parallel across jobs — different sources write to different
+        # files. If the lock is held, surface that to the user so the
+        # phase row doesn't look stuck.
         _job_set(job_id, step="aggregate", percent=92,
                  message="Rebuilding unified atlas")
-        _stream_subprocess(
-            [sys.executable, str(ROOT / "build_knowledge.py")],
-            job_id, "build_knowledge.py")
+        if not _AGGREGATE_LOCK.acquire(blocking=False):
+            _job_log(job_id, "waiting on aggregate lock "
+                             "(another job is rebuilding the atlas)…")
+            _AGGREGATE_LOCK.acquire()
+        try:
+            _stream_subprocess(
+                [sys.executable, str(ROOT / "build_knowledge.py")],
+                job_id, "build_knowledge.py")
+        finally:
+            _AGGREGATE_LOCK.release()
         _job_set(job_id, status="done", step="done", percent=100,
                  message=f"Source '{sid}' is live in the atlas.")
     except _Cancelled:
@@ -1436,11 +1496,16 @@ def api_source_delete(sid):
             "plan": plan,
         })
 
-    # Execute removal
+    # Execute removal under both locks: rs.remove() rewrites sources.json
+    # AND invokes build_knowledge.py to rebuild the unified atlas, so it
+    # collides with the same race surfaces as an ingest. Holding both locks
+    # ensures a delete that lands at the same time as an ingest doesn't
+    # corrupt the registry or the DB.
     log_lines = []
     def log(msg):
         log_lines.append(str(msg))
-    result = rs.remove(sid, dry_run=False, rebuild=True, log=log)
+    with _SOURCES_FILE_LOCK, _AGGREGATE_LOCK:
+        result = rs.remove(sid, dry_run=False, rebuild=True, log=log)
     result["log"] = log_lines
     return jsonify(result)
 
