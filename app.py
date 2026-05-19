@@ -1189,6 +1189,17 @@ def _handle_progress_event(job_id, event):
             # If this was the active phase, leave active_phase as-is so the UI
             # can still highlight the last-running phase until the next one starts.
 
+        elif ev == "rate_limited":
+            # fetch_channel.py spotted HTTP 429 / "Sign in to confirm" responses
+            # from YouTube. Hoist it onto the job root so the completion banner
+            # can render a real diagnosis instead of the generic "no transcripts
+            # produced" red herring.
+            j["rate_limited"] = {
+                "hits": event.get("hits") or 0,
+                "total": event.get("total") or 0,
+                "message": event.get("message") or "YouTube rate-limited",
+            }
+
 
 def _stream_subprocess(args, job_id, step_label):
     """Run a child process, capture stdout/stderr into the job log.
@@ -1315,11 +1326,32 @@ def _ingest_pipeline(job_id, payload):
                           if not p.name.endswith(".timed.txt")])
                      if tx_dir.exists() else 0)
         if txt_count == 0:
-            # Roll back the registry entry we just wrote — a source with no
-            # transcripts on disk is worse than no source at all (it
-            # misattributes every later "By source" report). Same lock as
-            # the upsert above so the rollback can't race with another
-            # ingest's upsert.
+            # Look up whether fetch_channel.py reported YouTube rate-limit /
+            # bot-challenge errors during this run. If so, the failure has
+            # nothing to do with the channel URL or the time window — the
+            # user just needs to wait or pass cookies. Skip the registry
+            # rollback in that case so they don't have to re-add the source
+            # when they retry: the registration is valid, the data just
+            # didn't make it through this round.
+            with JOBS_LOCK:
+                rate_info = JOBS.get(job_id, {}).get("rate_limited")
+            if rate_info:
+                _job_log(job_id,
+                    f"keeping sources.json entry for '{sid}' (rate-limited, retry later)")
+                raise RuntimeError(
+                    f"YouTube rate-limited this refresh "
+                    f"({rate_info['hits']} of {rate_info['total']} videos hit "
+                    f"HTTP 429 / bot-challenge). Wait several hours and click "
+                    f"Refresh again, OR set the env var "
+                    f"ATLAS_YT_COOKIES_FROM_BROWSER=chrome (or firefox/safari/"
+                    f"edge) and restart Flask so yt-dlp uses your logged-in "
+                    f"browser session. The source '{sid}' is still registered."
+                )
+            # No rate-limit signal — this is a real failure (bad URL, no
+            # English captions on the channel, too-narrow window, etc.).
+            # Roll back the registry entry: a source with no transcripts on
+            # disk is worse than no source at all because it misattributes
+            # every later "By source" report.
             try:
                 with _sources_file_atomic_rmw() as doc:
                     doc["sources"] = [s for s in doc.get("sources", [])
@@ -1330,7 +1362,10 @@ def _ingest_pipeline(job_id, payload):
             raise RuntimeError(
                 f"No transcripts produced for {channel_url}. "
                 f"Check the channel URL (handle must resolve in yt-dlp) and the "
-                f"time window (try 'all' if you used a short window)."
+                f"time window (try 'all' if you used a short window). If yt-dlp "
+                f"logs above show HTTP 429 or \"Sign in to confirm you're not a "
+                f"bot\", YouTube is rate-limiting you — wait a few hours or set "
+                f"ATLAS_YT_COOKIES_FROM_BROWSER=chrome."
             )
         _job_log(job_id, f"fetch produced {txt_count} transcript file(s)")
         _job_set(job_id, percent=55)
