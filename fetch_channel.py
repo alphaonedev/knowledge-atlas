@@ -34,7 +34,18 @@ PREF_LANGS = ["en", "en-US", "en-GB"]
 # under Claude Desktop's LaunchAgent, whose PATH is /usr/bin:/bin:/usr/sbin:/sbin
 # — bin dirs like /opt/anaconda3/bin and /opt/homebrew/bin are absent, so a
 # bare "yt-dlp" would resolve to nothing and crash with FileNotFoundError.
-YT_DLP = [sys.executable, "-m", "yt_dlp"]
+_YT_DLP_BASE = [sys.executable, "-m", "yt_dlp"]
+
+# Opt-in cookie source for YouTube — set ATLAS_YT_COOKIES_FROM_BROWSER to
+# chrome / firefox / safari / edge / brave / opera / chromium and yt-dlp will
+# read your logged-in browser cookies. The only reliable workaround when
+# YouTube starts returning HTTP 429 / "Sign in to confirm you're not a bot"
+# — they trust real browser sessions far more than headless yt-dlp.
+_COOKIES_FROM_BROWSER = (os.environ.get("ATLAS_YT_COOKIES_FROM_BROWSER") or "").strip()
+if _COOKIES_FROM_BROWSER:
+    YT_DLP = _YT_DLP_BASE + ["--cookies-from-browser", _COOKIES_FROM_BROWSER]
+else:
+    YT_DLP = _YT_DLP_BASE
 
 WINDOW_PRESETS = {
     "1d":  datetime.timedelta(days=1),
@@ -170,9 +181,33 @@ def enrich_metadata(video_id):
         return {}
 
 
+# Module-level counter so all parallel workers contribute to the same tally.
+# Used by main() to surface a clear "YouTube rate-limited you" warning at
+# the end of the run, rather than letting 429s look like "no captions".
+_RATE_LIMIT_HITS = 0
+_RATE_LIMIT_LOCK = threading.Lock()
+_RATE_LIMIT_MARKERS = (
+    "HTTP Error 429",
+    "Too Many Requests",
+    "Sign in to confirm you",   # YouTube bot challenge
+    "Sign in to confirm you're not a bot",
+)
+
+
+def _looks_rate_limited(stderr_text):
+    if not stderr_text:
+        return False
+    return any(m in stderr_text for m in _RATE_LIMIT_MARKERS)
+
+
 def download_subs(video_id, raw_dir, since=None, until=None):
     """Download subtitles into raw_dir/<id>.<lang>.srt. Returns chosen srt path or None.
-    `since` / `until` are YYYYMMDD strings; if set, yt-dlp will skip out-of-window videos."""
+    `since` / `until` are YYYYMMDD strings; if set, yt-dlp will skip out-of-window videos.
+
+    Records any 429 / bot-challenge responses to the module-level
+    _RATE_LIMIT_HITS counter so main() can surface them at the end of
+    the run instead of letting them masquerade as "no captions".
+    """
     url = f"https://www.youtube.com/watch?v={video_id}"
     outtmpl = str(raw_dir / f"{video_id}.%(ext)s")
 
@@ -190,11 +225,19 @@ def download_subs(video_id, raw_dir, since=None, until=None):
         base += ["--datebefore", until]
 
     # Try manual subs first, then auto
+    rate_limited_this_video = False
     for flag in ("--write-subs", "--write-auto-subs"):
-        subprocess.run(base + [flag], capture_output=True, text=True, check=False)
+        r = subprocess.run(base + [flag], capture_output=True, text=True, check=False)
+        if _looks_rate_limited(r.stderr) or _looks_rate_limited(r.stdout):
+            rate_limited_this_video = True
         cands = glob.glob(str(raw_dir / f"{video_id}*.srt"))
         if cands:
             break
+
+    if rate_limited_this_video:
+        with _RATE_LIMIT_LOCK:
+            global _RATE_LIMIT_HITS
+            _RATE_LIMIT_HITS += 1
 
     cands = glob.glob(str(raw_dir / f"{video_id}*.srt"))
     if not cands:
@@ -462,6 +505,28 @@ def main():
     print(f"      Stage 2 done in {elapsed:.1f}s  ·  "
           f"cached={counts.get('cached',0)} fetched={counts.get('fetched',0)} "
           f"no_subs={counts.get('no_subs',0)} failed={counts.get('failed',0)}")
+
+    # If YouTube rate-limited / bot-challenged us during sub downloads,
+    # call it out loudly. The default "no_subs" status is too gentle —
+    # it makes a 429 look like "video had no captions", which sends users
+    # chasing the wrong thing (channel URL, time window) when the real
+    # answer is "wait several hours or pass --cookies-from-browser".
+    if _RATE_LIMIT_HITS > 0:
+        print()
+        print("==== YouTube rate-limited or bot-challenged this run ====")
+        print(f"     {_RATE_LIMIT_HITS} of {total} video sub-downloads hit HTTP 429 / "
+              f"\"Sign in to confirm you're not a bot\".")
+        print( "     Fix options:")
+        print( "       1. Wait several hours, then retry — limits clear on their own.")
+        print( "       2. Pass YouTube cookies to yt-dlp by setting the env var:")
+        print( "            export ATLAS_YT_COOKIES_FROM_BROWSER=chrome  (or firefox/safari/edge)")
+        print( "          then re-run. yt-dlp will use your logged-in browser session.")
+        print( "==========================================================")
+        print()
+        _emit_progress("rate_limited", phase="fetch",
+                       hits=_RATE_LIMIT_HITS, total=total,
+                       message="YouTube rate-limited — retry later or pass cookies")
+
     _emit_progress("phase_done", phase="fetch",
                    elapsed_sec=round(elapsed, 1),
                    summary={
@@ -470,6 +535,7 @@ def main():
                        "fetched": counts.get("fetched", 0),
                        "no_subs": counts.get("no_subs", 0),
                        "failed": counts.get("failed", 0),
+                       "rate_limit_hits": _RATE_LIMIT_HITS,
                    })
 
     print(f"[3/3] Writing metadata to {meta_path}")
