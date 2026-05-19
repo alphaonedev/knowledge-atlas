@@ -675,6 +675,12 @@
         .phase-mini-bar { grid-column: 1 / -1; height: 4px; background: var(--panel-2);
                           border-radius: 2px; overflow: hidden; margin-top: 4px; }
         .phase-mini-bar > div { height:100%; background: var(--accent); width:0%; transition: width 0.4s; }
+        /* CSS containment isolates layout/paint inside these containers so a
+           necessary update (e.g. step count ticking up) doesn't reflow the
+           whole modal or repaint the donut SVG. Combined with the JS-side
+           _setHTMLIfChanged guard, this eliminates the visible flicker the
+           user reported during long ingest runs. */
+        #phase-summary, #prog-viz, #prog-current { contain: layout style paint; }
       </style>
       <div id="phase-summary" style="margin-bottom:14px;"></div>
 
@@ -809,6 +815,26 @@ function escapeHtml(s) {
   return String(s == null ? "" : s)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+// Skip the innerHTML rewrite (and the DOM tear-down/rebuild it triggers) if
+// the rendered string hasn't changed since the last call. Used in the
+// ingest-progress poll loop, which runs every ~1.2s — without this guard,
+// the phase rows and donut viz visibly flicker every cycle even when nothing
+// material changed. The cache lives on the element itself so it's GC-safe
+// (dies when the element is removed).
+function _setHTMLIfChanged(el, html) {
+  if (!el) return;
+  if (el._lastHTML === html) return;
+  el._lastHTML = html;
+  el.innerHTML = html;
+}
+
+function _setTextIfChanged(el, text) {
+  if (!el) return;
+  if (el._lastText === text) return;
+  el._lastText = text;
+  el.textContent = text;
 }
 
 let SOURCE = null;
@@ -1997,17 +2023,20 @@ function renderPhaseSummary(s) {
       </div>
     `;
   }).join("");
-  $("#phase-summary").innerHTML = html;
+  _setHTMLIfChanged($("#phase-summary"), html);
 
-  // Currently-processing line (only when active)
+  // Currently-processing line (only when active) — guarded against redundant
+  // rewrites so the "Downloading: <vid>" pill doesn't reflow every poll
+  // tick when the same item is still in flight.
   const cur = phases[active]?.current_item;
+  const curEl = $("#prog-current");
   if (cur && phases[active]?.status === "running") {
     const verb = active === "fetch" ? "Downloading" : active === "extract" ? "Extracting cards from" : "Processing";
-    $("#prog-current").style.display = "block";
-    $("#prog-current-line").innerHTML =
-      `<b>${verb}:</b> <code>${cur.id || "—"}</code>  —  ${cur.title || ""}`;
+    if (curEl.style.display !== "block") curEl.style.display = "block";
+    _setHTMLIfChanged($("#prog-current-line"),
+      `<b>${verb}:</b> <code>${cur.id || "—"}</code>  —  ${cur.title || ""}`);
   } else {
-    $("#prog-current").style.display = "none";
+    if (curEl.style.display !== "none") curEl.style.display = "none";
   }
 }
 
@@ -2182,16 +2211,20 @@ async function pollIngest(job_id) {
       continue;
     }
 
-    // High-level status pill + message
+    // High-level status pill + message — textContent (no parse cost) and
+    // guarded so identical strings don't re-trigger paint.
     const isTerminal = s.status === "done" || s.status === "error"
                     || s.status === "awaiting_extraction" || s.status === "cancelled";
-    $("#prog-step").textContent = s.active_phase || s.step || s.status || "starting";
-    $("#prog-msg").textContent = s.message || "";
+    _setTextIfChanged($("#prog-step"), s.active_phase || s.step || s.status || "starting");
+    _setTextIfChanged($("#prog-msg"),  s.message || "");
 
-    // Overall progress bar — server-side percent or computed from phases
+    // Overall progress bar — server-side percent or computed from phases.
+    // Only touch the style.width if it actually moves (CSS transition handles
+    // the visual smoothing; redundant writes still cost layout).
     const pct = isTerminal && s.status === "done" ? 100 :
                 (s.percent && s.percent > 0 ? Math.min(99, s.percent) : computeOverallPercent(s));
-    $("#prog-bar").style.width = pct + "%";
+    const bar = $("#prog-bar");
+    if (bar._lastPct !== pct) { bar._lastPct = pct; bar.style.width = pct + "%"; }
 
     // Aggregate ETA across all running + pending phases
     const phases = s.phases || {};
@@ -2201,27 +2234,29 @@ async function pollIngest(job_id) {
     const overallMeta = [];
     if (totalEta != null) overallMeta.push(`<b>ETA:</b> ${_human_duration(totalEta)} in current phase`);
     overallMeta.push(`overall ${pct}%`);
-    $("#prog-overall-meta").innerHTML = overallMeta.join("  ·  ");
+    _setHTMLIfChanged($("#prog-overall-meta"), overallMeta.join("  ·  "));
 
     renderPhaseSummary(s);
 
     // Live visualization for the active phase (or last terminal phase).
     // (Reuse the `phases` const declared earlier in this function for ETA calc.)
+    // _setHTMLIfChanged means the donut SVG isn't torn down and rebuilt every
+    // 1.2s — only when the counts genuinely change. Eliminates the most
+    // visible flicker reported by the user.
     const vizActive = s.active_phase;
     const vizPhase = phases[vizActive];
     const vizEl = $("#prog-viz");
     if (vizActive === "fetch" && vizPhase) {
-      vizEl.innerHTML = renderFetchViz(vizPhase);
-      vizEl.style.display = "block";
+      _setHTMLIfChanged(vizEl, renderFetchViz(vizPhase));
+      if (vizEl.style.display !== "block") vizEl.style.display = "block";
     } else if (vizActive === "extract" && vizPhase) {
-      vizEl.innerHTML = renderExtractViz(vizPhase);
-      vizEl.style.display = "block";
+      _setHTMLIfChanged(vizEl, renderExtractViz(vizPhase));
+      if (vizEl.style.display !== "block") vizEl.style.display = "block";
     } else if (isTerminal && phases.extract && (phases.extract.cards_total || 0) > 0) {
-      // Even after done, keep showing the extraction stats
-      vizEl.innerHTML = renderExtractViz(phases.extract);
-      vizEl.style.display = "block";
+      _setHTMLIfChanged(vizEl, renderExtractViz(phases.extract));
+      if (vizEl.style.display !== "block") vizEl.style.display = "block";
     } else {
-      vizEl.style.display = "none";
+      if (vizEl.style.display !== "none") vizEl.style.display = "none";
     }
 
     // Log
