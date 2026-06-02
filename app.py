@@ -17,14 +17,16 @@ import signal
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
+import zipfile
 from datetime import date, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-from flask import Flask, jsonify, request, render_template, send_from_directory, send_file, abort, Response
+from flask import Flask, jsonify, request, render_template, send_from_directory, send_file, abort, Response, after_this_request
 
 ROOT = Path(__file__).resolve().parent
 DB_PATH = ROOT / "data" / "knowledge.db"
@@ -1075,6 +1077,167 @@ def api_export():
             "Content-Length": str(len(body.encode("utf-8"))),
         },
     )
+
+
+def build_full_export_zip(zip_path, *, include_raw_srt=True):
+    """Pack the entire on-disk corpus into a single ZIP at zip_path.
+
+    The /api/export and atlas.py export commands only carry the
+    post-processed knowledge_atlas.json (aggregated cards). This
+    archive is the everything-you-have version:
+
+      manifest.json                              metadata for this archive
+      README.txt                                 layout reference
+      sources.json                               registered-source index
+      data/knowledge.db                          SQLite DB (FTS5 + tables)
+      data/export/knowledge_atlas.json           the aggregated card export
+      data/knowledge/<vid>.json                  per-video LLM extraction output
+      sources/<sid>/channel_metadata.json        per-source video metadata
+      sources/<sid>/transcripts/<vid>.txt        cleaned plain-text transcripts
+      sources/<sid>/transcripts/<vid>.timed.txt  timed transcripts ([mm:ss] cue)
+      sources/<sid>/raw_srt/<vid>.<lang>.srt     original yt-dlp SRT files
+                                                  (skipped when include_raw_srt=False)
+
+    Returns a dict of {bucket: file_count} so callers can show a summary.
+    """
+    counts = {}
+    with zipfile.ZipFile(zip_path, "w",
+                         compression=zipfile.ZIP_DEFLATED,
+                         allowZip64=True) as zf:
+        # 1. Single top-level files
+        for src, archive_name in [
+            (SOURCES_PATH,                                     "sources.json"),
+            (ROOT / "data" / "export" / "knowledge_atlas.json","data/export/knowledge_atlas.json"),
+            (DB_PATH,                                          "data/knowledge.db"),
+        ]:
+            if src.exists():
+                zf.write(src, archive_name)
+                counts[archive_name] = 1
+
+        # 2. Per-video LLM extraction outputs
+        knowledge_dir = ROOT / "data" / "knowledge"
+        n = 0
+        if knowledge_dir.exists():
+            for f in sorted(knowledge_dir.glob("*.json")):
+                if f.name.startswith("_") or f.name == "SCHEMA.md":
+                    continue
+                zf.write(f, f"data/knowledge/{f.name}")
+                n += 1
+        counts["per_video_card_json"] = n
+
+        # 3. Per-source artifacts
+        tx_count = timed_count = srt_count = meta_count = 0
+        sources_dir = ROOT / "sources"
+        if sources_dir.exists():
+            for src_dir in sorted(sources_dir.iterdir()):
+                if not src_dir.is_dir():
+                    continue
+                sid = src_dir.name
+                meta = src_dir / "channel_metadata.json"
+                if meta.exists():
+                    zf.write(meta, f"sources/{sid}/channel_metadata.json")
+                    meta_count += 1
+                tx_dir = src_dir / "transcripts"
+                if tx_dir.exists():
+                    for f in sorted(tx_dir.glob("*.txt")):
+                        zf.write(f, f"sources/{sid}/transcripts/{f.name}")
+                        if f.name.endswith(".timed.txt"):
+                            timed_count += 1
+                        else:
+                            tx_count += 1
+                if include_raw_srt:
+                    srt_dir = src_dir / "raw_srt"
+                    if srt_dir.exists():
+                        for f in sorted(srt_dir.glob("*.srt")):
+                            zf.write(f, f"sources/{sid}/raw_srt/{f.name}")
+                            srt_count += 1
+        counts["channel_metadata"] = meta_count
+        counts["transcripts_txt"] = tx_count
+        counts["transcripts_timed_txt"] = timed_count
+        if include_raw_srt:
+            counts["raw_srt"] = srt_count
+
+        # 4. README + manifest (manifest last so counts are accurate)
+        readme_lines = [
+            "Knowledge Atlas — full corpus export",
+            "",
+            "Archive contents:",
+            "  manifest.json                              metadata for this archive",
+            "  sources.json                               registered-source index",
+            "  data/knowledge.db                          SQLite DB (FTS5 + tables)",
+            "  data/export/knowledge_atlas.json           aggregated post-processed cards",
+            "  data/knowledge/<vid>.json                  per-video LLM extraction output",
+            "  sources/<sid>/channel_metadata.json        per-source video metadata",
+            "  sources/<sid>/transcripts/<vid>.txt        cleaned plain-text transcripts",
+            "  sources/<sid>/transcripts/<vid>.timed.txt  timestamped transcripts",
+        ]
+        if include_raw_srt:
+            readme_lines.append(
+                "  sources/<sid>/raw_srt/<vid>.<lang>.srt     original yt-dlp SRT files")
+        readme_lines += [
+            "",
+            "Re-import: drop the archive's `sources/`, `data/knowledge/`, `sources.json`,",
+            "and `data/export/` into a fresh Atlas checkout, then run",
+            "`python3 build_knowledge.py` to regenerate `data/knowledge.db` from the JSON.",
+        ]
+        zf.writestr("README.txt", "\n".join(readme_lines) + "\n")
+
+        manifest = {
+            "atlas_version": "knowledge-atlas",
+            "archive_format_version": "1.0",
+            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "include_raw_srt": include_raw_srt,
+            "file_counts": counts,
+        }
+        zf.writestr("manifest.json", json.dumps(manifest, indent=2))
+
+    return counts
+
+
+@app.route("/api/export/full")
+def api_export_full():
+    """Stream a ZIP containing the entire on-disk corpus.
+
+    Includes the registry, SQLite DB, post-processed export, per-video
+    LLM extractions, transcripts (plain + timed), and original yt-dlp
+    SRTs. Generated to a tempfile then streamed; the tempfile is
+    cleaned up via after_this_request so repeated exports don't leak.
+
+    Query params:
+      include_raw=false   Skip the original .srt files (smaller archive).
+                          Default: include everything.
+    """
+    today = datetime.utcnow().strftime("%Y%m%d")
+    include_raw = (request.args.get("include_raw", "true").lower()
+                   not in ("0", "false", "no"))
+
+    fd, tmp_path = tempfile.mkstemp(suffix=".zip", prefix="atlas_full_export_")
+    os.close(fd)
+    try:
+        build_full_export_zip(Path(tmp_path), include_raw_srt=include_raw)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+    @after_this_request
+    def _cleanup(response):
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        return response
+
+    return send_file(
+        tmp_path,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=f"knowledge_atlas_full_{today}.zip",
+        conditional=True,
+    )
+
 
 
 # ============================================================================

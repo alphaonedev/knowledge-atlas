@@ -376,6 +376,46 @@ def cmd_export(args):
     return 0
 
 
+def cmd_export_all(args):
+    """Bundle the entire on-disk corpus into a single ZIP archive.
+
+    Reuses app.build_full_export_zip so the dashboard's
+    /api/export/full button and this command stay in sync — both
+    produce identical archives (manifest, README, sources.json,
+    SQLite DB, aggregated export, per-video card JSON, transcripts,
+    optional SRTs).
+
+    No Flask service needs to be running — this reads the on-disk
+    files directly.
+    """
+    # Late import: app.py pulls in Flask which is heavyweight; only pay
+    # the cost when the user actually asked for an export.
+    sys.path.insert(0, str(ROOT))
+    try:
+        from app import build_full_export_zip
+    except Exception as e:
+        print(f"{RED}✗ Could not import build_full_export_zip from app.py: "
+              f"{e}{RESET}", file=sys.stderr)
+        return 1
+
+    out = Path(args.output).resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    include_raw = not args.no_raw
+
+    print(f"{DIM}Building full corpus archive → {out}…{RESET}", file=sys.stderr)
+    try:
+        counts = build_full_export_zip(out, include_raw_srt=include_raw)
+    except Exception as e:
+        print(f"{RED}✗ Failed to build archive: {e}{RESET}", file=sys.stderr)
+        return 1
+
+    size_mb = out.stat().st_size / 1024 / 1024
+    print(f"{GREEN}✓ Wrote {out} ({size_mb:.1f} MB){RESET}", file=sys.stderr)
+    for k, v in counts.items():
+        print(f"  {k}: {v}", file=sys.stderr)
+    return 0
+
+
 def cmd_logs(args):
     if not LOG_FILE.exists():
         print(f"{DIM}no log file yet at {LOG_FILE}{RESET}")
@@ -416,14 +456,24 @@ def main():
         help="Filter to a single source_id (default: full corpus).")
     p_export.add_argument("--rebuild", action="store_true",
         help="Run build_knowledge.py first to regenerate the export file.")
+
+    p_export_all = sub.add_parser("export-all",
+        help="Bundle the entire on-disk corpus into a single ZIP "
+             "(registry + cards + DB + transcripts + SRTs).")
+    p_export_all.add_argument("-o", "--output", required=True,
+        help="Path to write the .zip archive.")
+    p_export_all.add_argument("--no-raw", action="store_true",
+        help="Skip the original yt-dlp .srt files (smaller archive).")
+
     args = ap.parse_args()
 
-    if args.cmd == "start":   return cmd_start()
-    if args.cmd == "stop":    return cmd_stop()
-    if args.cmd == "restart": return cmd_restart()
-    if args.cmd == "status":  return cmd_status()
-    if args.cmd == "logs":    return cmd_logs(args)
-    if args.cmd == "export":  return cmd_export(args)
+    if args.cmd == "start":      return cmd_start()
+    if args.cmd == "stop":       return cmd_stop()
+    if args.cmd == "restart":    return cmd_restart()
+    if args.cmd == "status":     return cmd_status()
+    if args.cmd == "logs":       return cmd_logs(args)
+    if args.cmd == "export":     return cmd_export(args)
+    if args.cmd == "export-all": return cmd_export_all(args)
     return 1
 
 
