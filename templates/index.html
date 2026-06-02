@@ -1073,15 +1073,24 @@ async function renderSources() {
       <div class="kicker">Library</div>
       <h2>Indexed experts</h2>
       <div class="meta">${sources.length} expert${sources.length === 1 ? "" : "s"} · each contributes paraphrased knowledge cards to the same atlas</div>
-      <div style="margin-top:12px;">
+      <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
         <a href="/api/export" download
            class="btn-export"
-           title="Download the entire atlas as a single JSON file (sources, videos, cards, manifest with totals)"
+           title="Aggregated post-processed cards only (sources, videos, cards, manifest with totals)"
            style="display:inline-flex; align-items:center; gap:6px;
                   padding:6px 12px; border-radius:6px; border:1px solid var(--border);
                   background:var(--panel); color:var(--text); text-decoration:none;
                   font:600 12px inherit; cursor:pointer;">
           ↓ Export atlas (JSON)
+        </a>
+        <a href="/api/export/full" download
+           class="btn-export-all"
+           title="Everything on disk as a single ZIP: sources.json, SQLite DB, per-video LLM extractions, transcripts, original SRTs"
+           style="display:inline-flex; align-items:center; gap:6px;
+                  padding:6px 12px; border-radius:6px; border:1px solid var(--accent);
+                  background:var(--accent); color:white; text-decoration:none;
+                  font:600 12px inherit; cursor:pointer;">
+          ↓ Export everything (ZIP)
         </a>
       </div>
     </div>
